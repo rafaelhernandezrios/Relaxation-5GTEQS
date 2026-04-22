@@ -1,0 +1,19 @@
+{
+  "name": "relaxation-5gteqs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Relaxation 360° VR + EEG — lab stack",
+  "scripts": {
+    "cert": "node generate-cert.js",
+    "demo": "npm run cert && npm run experiment:mock",
+    "serve:https": "http-server app -S -C cert.pem -K key.pem -p 8443 -a 0.0.0.0",
+    "monitor": "npm run dev --prefix monitor-electron",
+    "experiment": "concurrently -n https,recorder,monitor -c cyan,magenta,green \"npm run serve:https\" \"bash scripts/run-aura.sh --wss\" \"sleep 3 && npm run monitor\"",
+    "experiment:mock": "concurrently -n https,recorder,monitor -c cyan,magenta,green \"npm run serve:https\" \"bash scripts/run-aura.sh --wss --mock-eeg\" \"sleep 3 && npm run monitor\"",
+    "postinstall": "npm install --prefix monitor-electron"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "http-server": "^14.1.1"
+  }
+}

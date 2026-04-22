@@ -1,0 +1,39 @@
+{
+  "videos": [
+    {
+      "id": "beach",
+      "title": "Playa / Beach",
+      "video_url_360": "videos/EARTH.mp4",
+      "thumbnail_url": "",
+      "duration_seconds": 90
+    },
+    {
+      "id": "forest",
+      "title": "Bosque / Forest",
+      "video_url_360": "videos/PECES.mp4",
+      "thumbnail_url": "",
+      "duration_seconds": 90
+    },
+    {
+      "id": "meadow",
+      "title": "Prado / Meadow",
+      "video_url_360": "videos/PLAYA .mp4",
+      "thumbnail_url": "",
+      "duration_seconds": 90
+    },
+    {
+      "id": "river",
+      "title": "Río / River",
+      "video_url_360": "videos/TEMPLO.mp4",
+      "thumbnail_url": "",
+      "duration_seconds": 90
+    },
+    {
+      "id": "sky",
+      "title": "Cielo / Sky",
+      "video_url_360": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+      "thumbnail_url": "",
+      "duration_seconds": 90
+    }
+  ]
+}

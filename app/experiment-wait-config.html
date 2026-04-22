@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Experimento — Relajación 360°</title>
+  <script src="js/app-base.js"></script>
+  <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
+  <style>
+    #waiting-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(160deg, #0f172a 0%, #1e3a5f 100%);
+      color: #e2e8f0;
+      font-family: system-ui, sans-serif;
+      text-align: center;
+      padding: 1rem;
+    }
+    #waiting-screen h2 { margin: 0 0 0.5rem; font-weight: 600; }
+    #waiting-screen p { margin: 0; color: #94a3b8; max-width: 22rem; }
+    #video-hud {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 15;
+      padding: 0.75rem 1rem;
+      background: linear-gradient(transparent, rgba(15, 23, 42, 0.92));
+      color: #f1f5f9;
+      font-family: system-ui, sans-serif;
+      display: none;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      justify-content: space-between;
+    }
+    #video-hud.visible { display: flex; }
+    .hud-block { display: flex; flex-direction: column; gap: 0.15rem; }
+    .hud-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8; }
+    .hud-value { font-size: 1.1rem; font-weight: 600; }
+    .ri-val { font-size: 1.5rem; color: #5eead4; }
+    #btn-end {
+      background: #f43f5e;
+      color: #fff;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #btn-end:hover { filter: brightness(1.05); }
+    #ws-status {
+      position: fixed;
+      top: 8px;
+      left: 8px;
+      z-index: 25;
+      font-size: 0.75rem;
+      font-family: system-ui, sans-serif;
+      padding: 0.35rem 0.5rem;
+      border-radius: 6px;
+      background: rgba(15, 23, 42, 0.75);
+      color: #cbd5e1;
+    }
+    #embedded-banner {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 30;
+      padding: 0.4rem 0.75rem;
+      font-size: 0.72rem;
+      font-family: system-ui, sans-serif;
+      text-align: center;
+      background: rgba(180, 83, 9, 0.92);
+      color: #fffbeb;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+    }
+    #embedded-banner.visible { display: block; }
+    #play-gate {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      background: rgba(2, 6, 23, 0.86);
+      color: #e2e8f0;
+      font-family: system-ui, sans-serif;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 1rem;
+    }
+    #play-gate.visible { display: flex; }
+    #play-gate button {
+      margin-top: 0.8rem;
+      background: #22c55e;
+      color: #052e16;
+      border: none;
+      padding: 0.65rem 1.1rem;
+      border-radius: 8px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="embedded-banner" aria-hidden="true">
+    Vista previa investigador (monitor) · audio silenciado — Researcher preview (muted)
+  </div>
+  <div id="ws-status">WS: …</div>
+  <div id="play-gate" aria-live="polite">
+    <div>
+      <div>To continue, tap to enable video playback.</div>
+      <div>Para continuar, toca para habilitar la reproducción.</div>
+      <button type="button" id="btn-play-gate">Enable video / Habilitar video</button>
+    </div>
+  </div>
+
+  <div id="waiting-screen">
+    <div>
+      <h2>Esperando configuración / Waiting for researcher</h2>
+      <p>El experimento comenzará cuando el investigador inicie la sesión desde el monitor.</p>
+    </div>
+  </div>
+
+  <div id="video-hud">
+    <div class="hud-block">
+      <span class="hud-label">Relaxation index</span>
+      <span class="hud-value ri-val" id="hud-ri">—</span>
+    </div>
+    <div class="hud-block">
+      <span class="hud-label">Video</span>
+      <span class="hud-value" id="hud-title">—</span>
+    </div>
+    <div class="hud-block">
+      <span class="hud-label">Clip</span>
+      <span class="hud-value" id="hud-clip">—</span>
+    </div>
+    <div class="hud-block">
+      <span class="hud-label">Tiempo / Time</span>
+      <span class="hud-value" id="hud-time">—</span>
+    </div>
+    <button type="button" id="btn-end">Finalizar sesión / End session</button>
+  </div>
+
+  <a-scene
+    vr-mode-ui="enabled: true"
+    loading-screen="enabled: false"
+    id="main-scene"
+    background="color: #000"
+  >
+    <a-assets>
+      <video
+        id="asset-vid"
+        src=""
+        autoplay="false"
+        loop="false"
+        crossorigin="anonymous"
+        playsinline
+      ></video>
+    </a-assets>
+
+    <a-entity id="camera-rig" position="0 1.6 0">
+      <a-camera id="main-camera" look-controls wasd-controls-enabled="false"></a-camera>
+    </a-entity>
+
+    <a-videosphere
+      id="video-world"
+      visible="false"
+      src="#asset-vid"
+      radius="100"
+    ></a-videosphere>
+  </a-scene>
+
+  <script src="js/logger.js"></script>
+  <script>
+    (function () {
+      var contentData = null;
+      var ws = null;
+      var experimentActive = false;
+      var playlist = [];
+      var durations = [];
+      var videoIndex = 0;
+      var clipDeadline = 0;
+      var timerId = null;
+      var experimentId = "";
+      var params = new URLSearchParams(location.search);
+      var isEmbedded = params.get("embedded") === "1";
+
+      var waitingEl = document.getElementById("waiting-screen");
+      var hudEl = document.getElementById("video-hud");
+      var videoWorld = document.getElementById("video-world");
+      var assetVid = document.getElementById("asset-vid");
+      var wsStatus = document.getElementById("ws-status");
+      var playGate = document.getElementById("play-gate");
+      var playGateButton = document.getElementById("btn-play-gate");
+      var pendingPlay = false;
+      var runtimeSeqSeen = -1;
+      var lastControlSource = "none";
+
+      if (isEmbedded) {
+        document.getElementById("embedded-banner").classList.add("visible");
+        if (assetVid) assetVid.muted = true;
+      }
+      function setWsStatus(t) {
+        wsStatus.textContent = "WS: " + t;
+      }
+
+      function showPlayGate() {
+        pendingPlay = true;
+        if (playGate) playGate.classList.add("visible");
+      }
+
+      function hidePlayGate() {
+        pendingPlay = false;
+        if (playGate) playGate.classList.remove("visible");
+      }
+
+      function tryPlayCurrentVideo() {
+        if (!assetVid) return;
+        var p = assetVid.play();
+        if (p && typeof p.then === "function") {
+          p.then(function () {
+            hidePlayGate();
+            setWsStatus("open · playing");
+          }).catch(function (err) {
+            var m = err && err.name ? err.name : "play blocked";
+            setWsStatus("open · " + m);
+            showPlayGate();
+          });
+        } else {
+          hidePlayGate();
+        }
+      }
+
+      function showWaiting() {
+        waitingEl.style.display = "flex";
+        hudEl.classList.remove("visible");
+        videoWorld.setAttribute("visible", false);
+        if (assetVid) {
+          assetVid.pause();
+        }
+        hidePlayGate();
+      }
+
+      function showExperiment() {
+        waitingEl.style.display = "none";
+        hudEl.classList.add("visible");
+        videoWorld.setAttribute("visible", true);
+      }
+
+      function connectWebSocket() {
+        var url = window.wsRecorderUrl();
+        var isLocalHost = location.hostname === "127.0.0.1" || location.hostname === "localhost";
+        if (!isEmbedded && location.protocol === "https:" && !isLocalHost) {
+          setWsStatus("disabled (poll mode)");
+          return;
+        }
+        setWsStatus("connecting…");
+        try {
+          ws = new WebSocket(url);
+        } catch (e) {
+          setWsStatus("error");
+          return;
+        }
+        ws.onopen = function () {
+          setWsStatus("open");
+        };
+        ws.onclose = function (ev) {
+          var closeCode = ev && typeof ev.code === "number" ? ev.code : 0;
+          setWsStatus("closed " + closeCode + " (retry 2s)");
+          setTimeout(connectWebSocket, 2000);
+        };
+        ws.onerror = function () {
+          setWsStatus("error (ws)");
+        };
+        ws.onmessage = function (ev) {
+          try {
+            var msg = JSON.parse(ev.data);
+            handleMessage(msg);
+          } catch (e) {
+            logSession("bad message", e);
+          }
+        };
+      }
+
+      function handleMessage(msg) {
+        if (msg.type === "adaptive_state") {
+          var ri = msg.relaxation_index;
+          document.getElementById("hud-ri").textContent =
+            ri != null && !isNaN(ri) ? ri.toFixed(1) : "—";
+          return;
+        }
+        if (msg.type === "start_experiment") {
+          if (!msg._source) msg._source = "ws";
+          lastControlSource = msg._source;
+          // Ignore duplicate start from mixed WS + polling paths.
+          if (
+            experimentActive &&
+            experimentId &&
+            experimentId === (msg.experiment_id || "") &&
+            Number(videoIndex) === Number(msg.video_index || 0)
+          ) {
+            return;
+          }
+          experimentId = msg.experiment_id || "";
+          playlist = msg.videos || [];
+          durations = msg.durations_seconds || [];
+          videoIndex = msg.video_index || 0;
+          experimentActive = true;
+          showExperiment();
+          startClipAt(videoIndex, false);
+          maybeEnterVr();
+          return;
+        }
+        if (msg.type === "force_video") {
+          if (!msg._source) msg._source = "ws";
+          lastControlSource = msg._source;
+          videoIndex = msg.video_index | 0;
+          startClipAt(videoIndex, true);
+          return;
+        }
+        if (msg.type === "stop_video") {
+          if (!msg._source) msg._source = "ws";
+          lastControlSource = msg._source;
+          endLocalExperiment();
+          return;
+        }
+        if (msg.type === "experiment_summary") {
+          logSession("summary", msg);
+        }
+      }
+
+      function pollRuntimeState() {
+        fetch(window.assetUrl("data/runtime-state.json"), { cache: "no-store" })
+          .then(function (r) {
+            if (!r.ok) throw new Error("runtime-state " + r.status);
+            return r.json();
+          })
+          .then(function (st) {
+            var seq = Number(st && st.seq);
+            if (!isFinite(seq) || seq <= runtimeSeqSeen) return;
+            runtimeSeqSeen = seq;
+            if (ws && ws.readyState === 1) {
+              return;
+            }
+            if (st.active) {
+              if (!experimentActive) {
+                handleMessage({
+                  type: "start_experiment",
+                  _source: "poll",
+                  experiment_id: st.experiment_id || "",
+                  videos: st.videos || [],
+                  durations_seconds: st.durations_seconds || [],
+                  video_index: Number(st.video_index) || 0
+                });
+                return;
+              }
+              if ((Number(st.video_index) || 0) !== videoIndex) {
+                handleMessage({ type: "force_video", _source: "poll", video_index: Number(st.video_index) || 0 });
+              }
+            } else if (experimentActive) {
+              handleMessage({ type: "stop_video", _source: "poll" });
+            }
+          })
+          .catch(function (e) {
+            void e;
+          });
+      }
+
+      function maybeEnterVr() {
+        if (isEmbedded) return;
+        if (new URLSearchParams(location.search).get("vr") !== "1") return;
+        var scene = document.querySelector("a-scene");
+        if (!scene) return;
+        function go() {
+          if (scene.enterVR) scene.enterVR();
+        }
+        if (scene.hasLoaded) go();
+        else scene.addEventListener("loaded", go, { once: true });
+      }
+
+      function clearClipTimer() {
+        if (timerId) {
+          clearTimeout(timerId);
+          timerId = null;
+        }
+      }
+
+      function startClipAt(idx, fromRemote) {
+        clearClipTimer();
+        if (!playlist.length || idx >= playlist.length) return;
+        videoIndex = idx;
+        var item = playlist[idx];
+        var url = window.assetUrl(item.video_url_360);
+        assetVid.pause();
+        assetVid.removeAttribute("src");
+        assetVid.setAttribute("src", url);
+        assetVid.load();
+        var durSec = durations[idx] != null ? Number(durations[idx]) : Number(item.duration_seconds) || 120;
+        var onMeta = function () {
+          assetVid.removeEventListener("loadedmetadata", onMeta);
+          var fileDur = assetVid.duration;
+          if (!isFinite(fileDur) || fileDur <= 0) fileDur = durSec;
+          var playLen = Math.min(durSec, fileDur);
+          clipDeadline = Date.now() + playLen * 1000;
+          // Safari on external devices may block autoplay with audio until user gesture.
+          assetVid.muted = !!isEmbedded;
+          tryPlayCurrentVideo();
+          scheduleTick();
+          timerId = setTimeout(onClipTimerEnd, playLen * 1000);
+        };
+        assetVid.addEventListener("loadedmetadata", onMeta);
+
+        document.getElementById("hud-title").textContent = item.title || item.id;
+        document.getElementById("hud-clip").textContent = idx + 1 + " / " + playlist.length;
+
+        if (!fromRemote && ws && ws.readyState === 1) {
+          ws.send(
+            JSON.stringify({
+              type: "video_advance",
+              video_index: idx,
+            })
+          );
+        }
+      }
+
+      function scheduleTick() {
+        requestAnimationFrame(function tick() {
+          if (!experimentActive) return;
+          var left = Math.max(0, (clipDeadline - Date.now()) / 1000);
+          document.getElementById("hud-time").textContent = left.toFixed(0) + " s";
+          if (clipDeadline > Date.now()) requestAnimationFrame(tick);
+        });
+      }
+
+      function onClipTimerEnd() {
+        if (!experimentActive) return;
+        var next = videoIndex + 1;
+        if (next < playlist.length) {
+          startClipAt(next, false);
+        } else {
+          if (ws && ws.readyState === 1) {
+            ws.send(JSON.stringify({ type: "stop" }));
+          }
+          endLocalExperiment();
+        }
+      }
+
+      function endLocalExperiment() {
+        experimentActive = false;
+        clearClipTimer();
+        assetVid.pause();
+        showWaiting();
+        document.getElementById("hud-ri").textContent = "—";
+      }
+
+      document.getElementById("btn-end").addEventListener("click", function () {
+        if (ws && ws.readyState === 1) {
+          ws.send(JSON.stringify({ type: "stop" }));
+        }
+        endLocalExperiment();
+      });
+
+      if (playGateButton) {
+        playGateButton.addEventListener("click", function () {
+          tryPlayCurrentVideo();
+        });
+      }
+
+      document.addEventListener("click", function () {
+        if (pendingPlay) tryPlayCurrentVideo();
+      });
+
+      fetch(window.assetUrl("data/content.json"))
+        .then(function (r) {
+          return r.json();
+        })
+        .then(function (data) {
+          contentData = data;
+        })
+        .catch(function () {
+          logSession("no content.json");
+        });
+
+      connectWebSocket();
+      setInterval(pollRuntimeState, 1000);
+      pollRuntimeState();
+
+      document.querySelector("a-scene").addEventListener("loaded", function () {
+        var scene = document.querySelector("a-scene");
+        scene.addEventListener("enter-vr", function () {
+          var vw = document.getElementById("video-world");
+          if (vw) vw.setAttribute("position", "0 -1.5 0");
+        });
+        scene.addEventListener("exit-vr", function () {
+          var vw = document.getElementById("video-world");
+          if (vw) vw.setAttribute("position", "0 0 0");
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

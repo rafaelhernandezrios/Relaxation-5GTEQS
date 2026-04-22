@@ -1,0 +1,13 @@
+node_modules/
+monitor-electron/node_modules/
+cert.pem
+key.pem
+output/*.csv
+.DS_Store
+*.pyc
+__pycache__/
+.venv/
+venv/
+dist/
+monitor-electron/dist/
+app/videos/
