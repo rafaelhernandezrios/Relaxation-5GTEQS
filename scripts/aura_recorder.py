@@ -17,7 +17,7 @@ import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -341,6 +341,12 @@ class SessionState:
         self.clients: Set[Any] = set()
         self.full_buffer: List[tuple] = []
         self.buffer_lock = threading.Lock()
+        # Server-side timer that closes out the experiment when the
+        # playlist's total duration elapses, in case no client (e.g. a
+        # Quest VR running in poll-only mode) ever sends an explicit
+        # `stop`. Re-scheduled on start / set_video / video_advance,
+        # cancelled on explicit `stop`.
+        self.auto_stop_task: Optional["asyncio.Task[Any]"] = None
 
         def on_sample(ts: float, sample: List[float], label: str) -> None:
             if self.rec.recording:
@@ -437,6 +443,82 @@ def merge_durations(videos: List[Dict[str, Any]], override: Optional[List[float]
     return base
 
 
+# Buffer (seconds) added on top of the playlist's remaining duration when
+# scheduling the server-side auto-stop. Keeps the recorder running long
+# enough that the participant client (Quest VR / desktop) finishes its
+# last clip before the recorder closes the experiment.
+AUTO_STOP_BUFFER_S = 5.0
+
+
+async def _perform_stop(state: SessionState) -> Tuple[Dict[str, Any], str]:
+    """Build the experiment summary, persist it, and broadcast over WS.
+
+    Used by both the explicit `stop` message handler and the server-side
+    auto-stop timer. Returns (summary, csv_path).
+    """
+    summary = state.rec.build_summary()
+    path = ""
+    with state.buffer_lock:
+        rows = list(state.full_buffer)
+    if rows:
+        path = save_csv(state.rec, state.eeg, rows)
+    state.rec.stop()
+    state.runtime_seq += 1
+    if path:
+        summary["csv_file"] = path
+    write_runtime_state(
+        {
+            "seq": state.runtime_seq,
+            "active": False,
+            "experiment_id": state.rec.experiment_id,
+            "video_index": state.rec.video_index,
+            "videos": state.rec.videos,
+            "durations_seconds": state.rec.durations_seconds,
+            "summary": summary,
+            "summary_seq": state.runtime_seq,
+            "updated_at": int(time.time() * 1000),
+        }
+    )
+    await state.broadcast({"type": "stop_video"})
+    await state.broadcast(summary)
+    return summary, path
+
+
+async def _auto_stop_after(state: SessionState, delay: float) -> None:
+    try:
+        await asyncio.sleep(delay)
+    except asyncio.CancelledError:
+        return
+    if not state.rec.recording:
+        return
+    try:
+        await _perform_stop(state)
+    except Exception:
+        pass
+
+
+def _schedule_auto_stop(state: SessionState, delay: float) -> None:
+    if state.auto_stop_task and not state.auto_stop_task.done():
+        state.auto_stop_task.cancel()
+    state.auto_stop_task = asyncio.create_task(
+        _auto_stop_after(state, max(1.0, float(delay)))
+    )
+
+
+def _cancel_auto_stop(state: SessionState) -> None:
+    if state.auto_stop_task and not state.auto_stop_task.done():
+        state.auto_stop_task.cancel()
+    state.auto_stop_task = None
+
+
+def _remaining_playlist_seconds(state: SessionState) -> float:
+    durs = state.rec.durations_seconds or []
+    idx = max(0, int(state.rec.video_index or 0))
+    if idx >= len(durs):
+        return AUTO_STOP_BUFFER_S
+    return float(sum(float(d) for d in durs[idx:])) + AUTO_STOP_BUFFER_S
+
+
 async def handle_client(ws: Any, state: SessionState) -> None:
     await state.register(ws)
     try:
@@ -487,6 +569,7 @@ async def handle_client(ws: Any, state: SessionState) -> None:
                         "updated_at": int(time.time() * 1000),
                     }
                 )
+                _schedule_auto_stop(state, _remaining_playlist_seconds(state))
 
                 await state.broadcast(
                     {
@@ -531,6 +614,7 @@ async def handle_client(ws: Any, state: SessionState) -> None:
                     durs,
                     float(data.get("baseline_calibration_seconds", 0) or 0),
                 )
+                _schedule_auto_stop(state, _remaining_playlist_seconds(state))
                 await ws.send(json.dumps({"status": "started"}))
 
             elif mtype in ("set_video", "manual_level", "level_change"):
@@ -548,6 +632,8 @@ async def handle_client(ws: Any, state: SessionState) -> None:
                         "updated_at": int(time.time() * 1000),
                     }
                 )
+                if state.rec.recording:
+                    _schedule_auto_stop(state, _remaining_playlist_seconds(state))
                 await state.broadcast({"type": "force_video", "video_index": idx})
 
             elif mtype == "video_advance":
@@ -565,32 +651,14 @@ async def handle_client(ws: Any, state: SessionState) -> None:
                         "updated_at": int(time.time() * 1000),
                     }
                 )
+                if state.rec.recording:
+                    _schedule_auto_stop(state, _remaining_playlist_seconds(state))
                 await state.broadcast({"type": "force_video", "video_index": nxt})
 
             elif mtype == "stop":
-                summary = state.rec.build_summary()
-                path = ""
-                with state.buffer_lock:
-                    rows = list(state.full_buffer)
-                if rows:
-                    path = save_csv(state.rec, state.eeg, rows)
-                state.rec.stop()
-                state.runtime_seq += 1
-                write_runtime_state(
-                    {
-                        "seq": state.runtime_seq,
-                        "active": False,
-                        "experiment_id": state.rec.experiment_id,
-                        "video_index": state.rec.video_index,
-                        "videos": state.rec.videos,
-                        "durations_seconds": state.rec.durations_seconds,
-                        "updated_at": int(time.time() * 1000),
-                    }
-                )
-                if path:
-                    summary["csv_file"] = path
-                await state.broadcast({"type": "stop_video"})
-                await state.broadcast(summary)
+                _cancel_auto_stop(state)
+                summary, path = await _perform_stop(state)
+                _ = summary  # broadcast inside helper; unused locally
                 await ws.send(json.dumps({"status": "stopped", "file": path}))
 
             elif mtype == "stop_video":

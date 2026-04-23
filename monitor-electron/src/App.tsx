@@ -9,6 +9,7 @@ type VideoItem = {
 };
 
 const DEFAULT_DURATIONS = [90, 90, 90, 90, 90];
+const DEFAULT_GLOBAL_DURATION = 90;
 
 type BandSample = {
   t: number;
@@ -106,7 +107,7 @@ export function App() {
   const [experimentId, setExperimentId] = useState("exp-001");
   const [baselineCal, setBaselineCal] = useState(0);
   const [simulationMode, setSimulationMode] = useState(true);
-  const [durations, setDurations] = useState<number[]>(DEFAULT_DURATIONS);
+  const [globalDuration, setGlobalDuration] = useState<number>(DEFAULT_GLOBAL_DURATION);
   const [, setVideos] = useState<VideoItem[]>([]);
   const [currentTitle, setCurrentTitle] = useState("—");
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
@@ -126,7 +127,7 @@ export function App() {
         const v = data.videos || [];
         setVideos(v);
         if (v.length === 5) {
-          setDurations(v.map((x) => x.duration_seconds));
+          setGlobalDuration(Number(v[0]?.duration_seconds) || DEFAULT_GLOBAL_DURATION);
         }
       })
       .catch(() => {
@@ -213,7 +214,7 @@ export function App() {
       session_type: "relaxation_playlist",
       experiment_id: experimentId,
       video_index: 0,
-      durations_seconds: durations,
+      durations_seconds: Array(5).fill(Math.max(5, Number(globalDuration) || DEFAULT_GLOBAL_DURATION)),
       baseline_calibration_seconds: baselineCal,
       simulate_eeg: simulationMode,
     });
@@ -251,12 +252,12 @@ export function App() {
     <div className="monitor-root">
       <header className="app-header">
         <div className="titles">
-          <h1>Panel del investigador · Lab control</h1>
+          <h1>Researcher Panel · Lab Control / 研究者パネル</h1>
           <p className="sub">
-            <strong>ES:</strong> Esto no es la vista inmersiva del participante: configuras aquí y con <strong>Iniciar</strong>{" "}
-            arrancas la sesión en el recorder; los vídeos se reproducen en la web HTTPS (iframe) y en Quest.{" "}
-            <strong>EN:</strong> Not the participant-facing UI — configure and <strong>Start</strong> to push{" "}
-            <code>start_experiment</code> to all WebSocket clients.
+            <strong>EN:</strong> This is not the immersive participant view. Configure here and press{" "}
+            <strong>Start</strong> to launch the session in the recorder; videos play on the HTTPS web page
+            (iframe) and on Quest. <strong>JA:</strong> これは参加者向けの没入ビューではありません。ここで設定し、
+            <strong>Start</strong> を押すと、レコーダーのセッションが開始されます。
           </p>
         </div>
         <span className={"ws-pill " + (wsState === "open" ? "open" : "")}>Recorder WS: {wsState}</span>
@@ -264,10 +265,10 @@ export function App() {
 
       <nav className="tabs main-tabs">
         <button type="button" className={tab === "control" ? "active" : ""} onClick={() => setTab("control")}>
-          Control + vista previa
+          Control + Preview / 制御 + プレビュー
         </button>
         <button type="button" className={tab === "signals" ? "active" : ""} onClick={() => setTab("signals")}>
-          Señales EEG
+          EEG Signals / EEG信号
         </button>
       </nav>
 
@@ -276,7 +277,7 @@ export function App() {
           <aside className="control-pane">
             <div className="panel-scroll">
               <div className="preview-url-row">
-                <label htmlFor="purl">URL página participante (HTTPS)</label>
+                <label htmlFor="purl">Participant page URL (HTTPS) / 参加者ページURL</label>
                 <input
                   id="purl"
                   value={participantUrlInput}
@@ -285,10 +286,10 @@ export function App() {
                   placeholder="https://&lt;IP&gt;:8443/experiment-wait-config.html"
                 />
                 <p className="compact-hint">
-                  Quest: usa la IP del PC. El iframe añade <code>?embedded=1</code> (solo vista previa, sin audio).
+                  Quest: use the PC IP address. The iframe appends <code>?embedded=1</code> (preview only, no audio).
                 </p>
                 <button type="button" className="btn-primary" style={{ marginTop: "0.5rem" }} onClick={applyPreviewUrl}>
-                  Aplicar vista previa
+                  Apply preview / プレビューを適用
                 </button>
               </div>
 
@@ -314,47 +315,39 @@ export function App() {
                   onChange={(e) => setSimulationMode(e.target.checked)}
                 />
                 <span>
-                  Modo simulacion (sin AURA) · Simulation mode (mock EEG)
+                  Simulation mode (without AURA) / シミュレーションモード（AURAなし）
                 </span>
               </label>
 
               <p className="compact-hint" style={{ marginTop: "0.65rem" }}>
-                Duraciones por clip (s) — 5 vídeos en <code>content.json</code>
+                Global duration per clip (s) - applied equally to all 5 videos
               </p>
-              <div className="durations-grid">
-                {durations.map((d, i) => (
-                  <label key={i} className="field">
-                    Clip {i + 1}
-                    <input
-                      type="number"
-                      min={5}
-                      value={d}
-                      onChange={(e) => {
-                        const next = [...durations];
-                        next[i] = Number(e.target.value);
-                        setDurations(next);
-                      }}
-                    />
-                  </label>
-                ))}
-              </div>
+              <label className="field" style={{ marginTop: "0.35rem" }}>
+                Timer (s)
+                <input
+                  type="number"
+                  min={5}
+                  value={globalDuration}
+                  onChange={(e) => setGlobalDuration(Number(e.target.value))}
+                />
+              </label>
 
               <div className="actions">
                 <button type="button" className="btn-primary" onClick={onStart}>
-                  Iniciar · Start
+                  Start / 開始
                 </button>
                 <button type="button" className="btn-danger" onClick={onStop}>
-                  Detener · Stop
+                  Stop / 停止
                 </button>
               </div>
 
               <div className="now-playing-mini">
-                Estado: {currentIndex != null ? `clip ${currentIndex + 1}/5` : "esperando"} — {currentTitle}
+                Status: {currentIndex != null ? `clip ${currentIndex + 1}/5` : "waiting"} - {currentTitle}
               </div>
 
               {summary && (
                 <div className="summary-block">
-                  <strong>Ganador (RI medio):</strong> {String(summary.winner_video_id || "—")}
+                  <strong>Winner (mean RI) / 勝者（平均RI）:</strong> {String(summary.winner_video_id || "—")}
                   <pre>{JSON.stringify(summary.per_video_mean_relaxation, null, 2)}</pre>
                 </div>
               )}
@@ -368,7 +361,7 @@ export function App() {
 
           <section className="preview-pane">
             <div className="preview-chrome">
-              <strong>Vista previa — misma página que Quest (servidor HTTPS)</strong>
+              <strong>Preview - same page as Quest (HTTPS server) / プレビュー</strong>
               <span className="hint">embedded=1</span>
             </div>
             <iframe className="participant-iframe" title="Participant session" src={iframeSrc} />
@@ -460,14 +453,14 @@ export function App() {
                     fill="#52525b"
                     fontSize="14"
                   >
-                    Esperando muestras del recorder…
+                    Waiting for recorder samples...
                   </text>
                 )}
               </svg>
               <div className="bands-footer">
-                <span>Ventana rodante ~{BAND_HISTORY_LEN * 2}s (cada serie normalizada a su min/max)</span>
+                <span>Rolling window ~{BAND_HISTORY_LEN * 2}s (each series normalized to its min/max)</span>
                 <span>
-                  {bandsHistory.length}/{BAND_HISTORY_LEN} muestras
+                  {bandsHistory.length}/{BAND_HISTORY_LEN} samples
                 </span>
               </div>
             </div>
@@ -491,9 +484,8 @@ export function App() {
               </div>
             </div>
             <p className="compact-hint" style={{ marginTop: "1rem" }}>
-              Ondas en tiempo real desde el recorder (actualización cada 2 s). Controla el inicio/fin
-              desde <strong>Control + vista previa</strong>; los vídeos solo se reproducen en el servidor
-              HTTPS (Quest/iframe).
+              Real-time waves from the recorder (updated every 2 s). Control start/stop from{" "}
+              <strong>Control + Preview</strong>; videos only play on the HTTPS server (Quest/iframe).
             </p>
           </div>
         </div>

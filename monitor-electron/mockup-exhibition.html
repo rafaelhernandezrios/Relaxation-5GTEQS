@@ -1,0 +1,1305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Relaxation × VR — Exhibition Mode Mockup</title>
+<meta name="viewport" content="width=1920" />
+<style>
+  :root {
+    --bg-1: #0a0e1a;
+    --bg-2: #1a0f2e;
+    --surface: #141828;
+    --surface-2: #1b2036;
+    --border: rgba(255, 255, 255, 0.06);
+    --border-strong: rgba(255, 255, 255, 0.12);
+    --text: #f4f5fb;
+    --text-muted: #8b92ad;
+    --text-faint: #525872;
+    --cyan: #22d3ee;
+    --cyan-glow: rgba(34, 211, 238, 0.45);
+    --violet: #a855f7;
+    --violet-glow: rgba(168, 85, 247, 0.45);
+    --green: #34d399;
+    --amber: #f59e0b;
+    --red: #ef4444;
+    --pink: #f472b6;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(1400px 900px at 75% 10%, rgba(168, 85, 247, 0.18), transparent 60%),
+      radial-gradient(1200px 800px at 10% 90%, rgba(34, 211, 238, 0.12), transparent 60%),
+      linear-gradient(135deg, var(--bg-1) 0%, var(--bg-2) 100%);
+    background-attachment: fixed;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .mono {
+    font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    font-feature-settings: 'tnum';
+  }
+
+  /* ----- Top bar ----- */
+  .topbar {
+    height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(10, 14, 26, 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    position: relative;
+    z-index: 10;
+  }
+  .topbar-left, .topbar-right { display: flex; align-items: center; gap: 14px; }
+  .topbar-center { display: flex; align-items: center; }
+  .brand {
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    font-size: 14px;
+  }
+  .brand-accent { color: var(--cyan); }
+  .exp-id {
+    font-size: 11px;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.04);
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    letter-spacing: 0.08em;
+  }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-faint);
+  }
+  .status-dot.live  { background: var(--red);   box-shadow: 0 0 0 0 rgba(239,68,68,0.7); animation: pulse-red 1.6s ease-out infinite; }
+  .status-dot.calc  { background: var(--amber); animation: pulse-amber 1s ease-out infinite; }
+  .status-dot.winner { background: var(--cyan); box-shadow: 0 0 12px var(--cyan-glow); }
+  .status-dot.idle  { background: var(--text-faint); }
+
+  @keyframes pulse-red {
+    0%   { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+    70%  { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  }
+  @keyframes pulse-amber {
+    0%, 100% { opacity: 0.6; }
+    50%      { opacity: 1; }
+  }
+
+  .btn-stop {
+    background: rgba(239, 68, 68, 0.12);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    padding: 7px 16px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 150ms ease;
+  }
+  .btn-stop:hover { background: rgba(239, 68, 68, 0.2); color: #fff; }
+
+  /* ----- Layout ----- */
+  .stage {
+    height: calc(100vh - 52px - 44px);
+    display: grid;
+    grid-template-columns: 1fr 540px;
+    gap: 16px;
+    padding: 16px;
+  }
+
+  .feed {
+    position: relative;
+    border-radius: 20px;
+    overflow: hidden;
+    background: #000;
+    border: 1px solid var(--border);
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.04),
+      0 30px 60px -20px rgba(0,0,0,0.6),
+      0 0 80px -10px rgba(34, 211, 238, 0.15);
+  }
+
+  .right-col {
+    display: grid;
+    grid-template-rows: 1.4fr 1fr;
+    gap: 16px;
+    min-width: 0;
+  }
+
+  .panel {
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)),
+      var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.02),
+      0 20px 40px -20px rgba(0,0,0,0.5);
+    overflow: hidden;
+    position: relative;
+  }
+
+  .footer {
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    color: var(--text-faint);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ----- Feed (participant view) ----- */
+  .feed::before {
+    content: '';
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(800px 500px at 30% 40%, rgba(168, 85, 247, 0.3), transparent 60%),
+      radial-gradient(700px 500px at 75% 70%, rgba(34, 211, 238, 0.25), transparent 65%),
+      linear-gradient(160deg, #1a3d5e 0%, #2d1b4e 60%, #0a0a18 100%);
+    filter: saturate(1.1);
+    transition: filter 600ms ease, opacity 600ms ease;
+  }
+  .feed.idle::before { filter: saturate(0.4) brightness(0.5); }
+  .feed::after {
+    content: '';
+    position: absolute; inset: 0;
+    background-image: radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px);
+    background-size: 3px 3px;
+    mix-blend-mode: overlay;
+    opacity: 0.6;
+    pointer-events: none;
+  }
+
+  .feed-overlay {
+    position: absolute; inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 20px 24px;
+    z-index: 2;
+    transition: opacity 400ms ease;
+  }
+  .feed.idle .feed-overlay { opacity: 0.25; }
+  .feed.calc .feed-overlay,
+  .feed.winner .feed-overlay { opacity: 0; pointer-events: none; }
+
+  .live-chip {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .live-dot {
+    width: 8px; height: 8px;
+    background: var(--red);
+    border-radius: 50%;
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+    animation: pulse-red 1.6s ease-out infinite;
+  }
+
+  .feed-title-row {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+  }
+  .video-info { display: flex; flex-direction: column; gap: 6px; }
+  .video-stage {
+    font-size: 13px;
+    color: var(--cyan);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .video-name {
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    text-shadow: 0 4px 24px rgba(0,0,0,0.6);
+  }
+  .video-name-jp {
+    font-size: 16px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  .video-timer {
+    text-align: right;
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    padding: 12px 18px;
+    min-width: 140px;
+  }
+  .video-timer-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .video-timer-value {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  /* ----- Idle / Start overlay ----- */
+  .idle-overlay {
+    position: absolute; inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+    background: radial-gradient(circle at 50% 50%, rgba(10,14,26,0.4), rgba(10,14,26,0.85));
+    transition: opacity 400ms ease;
+  }
+  .idle-overlay[hidden] { display: none; }
+  .idle-card {
+    text-align: center;
+    padding: 40px 60px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+  .idle-eyebrow {
+    font-size: 12px;
+    color: var(--cyan);
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .idle-title {
+    font-size: 48px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    margin-top: 4px;
+    background: linear-gradient(135deg, #fff, #bae6fd 50%, #c4b5fd);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .idle-subtitle {
+    font-size: 15px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+  .btn-start {
+    margin-top: 28px;
+    background: linear-gradient(135deg, var(--cyan), #0891b2);
+    color: #07101a;
+    border: 0;
+    padding: 18px 46px;
+    border-radius: 999px;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    box-shadow:
+      0 0 0 1px rgba(34, 211, 238, 0.3),
+      0 0 30px var(--cyan-glow),
+      0 12px 30px -10px rgba(34, 211, 238, 0.5);
+    transition: all 200ms ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .btn-start:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 0 0 1px rgba(34, 211, 238, 0.5),
+      0 0 50px rgba(34, 211, 238, 0.7),
+      0 16px 40px -10px rgba(34, 211, 238, 0.6);
+  }
+  .btn-start:active { transform: translateY(0); }
+  .idle-meta {
+    margin-top: 18px;
+    font-size: 13px;
+    color: var(--text-faint);
+    letter-spacing: 0.05em;
+  }
+
+  /* ----- Calculating overlay ----- */
+  .calc-overlay, .winner-overlay {
+    position: absolute; inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+    background: rgba(10, 14, 26, 0.78);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    gap: 20px;
+  }
+  .calc-overlay[hidden], .winner-overlay[hidden] { display: none; }
+  .calc-spinner {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    border: 3px solid rgba(34, 211, 238, 0.15);
+    border-top-color: var(--cyan);
+    animation: spin 1.2s linear infinite;
+    box-shadow: 0 0 40px var(--cyan-glow);
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .calc-text {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .calc-text-jp {
+    font-size: 18px;
+    color: var(--text-muted);
+  }
+
+  /* ----- Winner overlay ----- */
+  .winner-overlay { gap: 12px; }
+  .winner-eyebrow {
+    font-size: 13px;
+    color: var(--amber);
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    font-weight: 700;
+    text-shadow: 0 0 20px rgba(245, 158, 11, 0.6);
+    animation: glow-amber 2s ease-in-out infinite;
+  }
+  @keyframes glow-amber {
+    0%, 100% { text-shadow: 0 0 20px rgba(245, 158, 11, 0.4); }
+    50%      { text-shadow: 0 0 30px rgba(245, 158, 11, 0.8); }
+  }
+  .winner-name {
+    font-size: 80px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    background: linear-gradient(135deg, #fde68a, #fff, #bae6fd);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-align: center;
+  }
+  .winner-jp {
+    font-size: 24px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+  .winner-ri {
+    margin-top: 18px;
+    padding: 10px 22px;
+    background: rgba(34, 211, 238, 0.1);
+    border: 1px solid rgba(34, 211, 238, 0.3);
+    border-radius: 999px;
+    font-size: 16px;
+    color: var(--cyan);
+    letter-spacing: 0.15em;
+  }
+
+  /* ----- Panel headers ----- */
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .panel-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+  }
+  .panel-title-jp {
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-left: 8px;
+  }
+  .panel-tag {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  /* ----- Brain Activity panel ----- */
+  .brain-grid {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 16px;
+    flex: 1;
+    align-items: center;
+    min-height: 0;
+  }
+  .brain-svg-wrap {
+    position: relative;
+    width: 240px;
+    height: 280px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .brain-svg-el { width: 240px; height: 280px; display: block; }
+  .hotspot { transition: opacity 800ms cubic-bezier(.2,.7,.2,1), r 800ms cubic-bezier(.2,.7,.2,1); }
+  .brain-svg-el.idle .hotspot { animation: hot-idle 4s ease-in-out infinite; }
+  @keyframes hot-idle {
+    0%, 100% { opacity: 0.15; }
+    50%      { opacity: 0.4; }
+  }
+  .brain-svg-el.calc .hotspot { animation: hot-calc 0.8s ease-in-out infinite; }
+  @keyframes hot-calc {
+    0%, 100% { opacity: 0.4; }
+    50%      { opacity: 0.9; }
+  }
+  .brain-svg-el.winner .hotspot {
+    opacity: 0.85;
+    animation: hot-winner 1.4s ease-in-out infinite;
+  }
+  @keyframes hot-winner {
+    0%, 100% { opacity: 0.65; }
+    50%      { opacity: 1; }
+  }
+
+  .ri-display {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding-left: 4px;
+  }
+  .ri-eyebrow {
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+  }
+  .ri-value {
+    font-size: 72px;
+    font-weight: 700;
+    letter-spacing: -0.05em;
+    line-height: 1;
+    color: var(--text);
+    text-shadow: 0 0 28px var(--cyan-glow);
+    margin-top: 2px;
+  }
+  .ri-value.idle { color: var(--text-faint); text-shadow: none; }
+  .ri-trend {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--green);
+    letter-spacing: 0.05em;
+  }
+  .ri-trend.down { color: var(--amber); }
+  .ri-trend.idle { color: var(--text-faint); }
+  .ri-scale {
+    margin-top: 18px;
+    width: 100%;
+    height: 6px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #ef4444, #f59e0b 35%, #22d3ee 65%, #34d399);
+    position: relative;
+    opacity: 0.7;
+  }
+  .ri-scale::after {
+    content: '';
+    position: absolute;
+    top: -4px;
+    width: 2px; height: 14px;
+    background: #fff;
+    border-radius: 1px;
+    left: var(--ri-pct, 50%);
+    transform: translateX(-50%);
+    box-shadow: 0 0 8px rgba(255,255,255,0.8);
+    transition: left 600ms cubic-bezier(.2,.7,.2,1);
+  }
+
+  /* Bands */
+  .bands-row {
+    margin-top: 14px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+  .band-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .band-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+  .band-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+  }
+  .band-value {
+    font-size: 12px;
+    color: var(--text);
+  }
+  .band-track {
+    height: 6px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .band-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 800ms cubic-bezier(.2,.7,.2,1);
+  }
+  .band-fill.theta { background: linear-gradient(90deg, #a78bfa, #c4b5fd); box-shadow: 0 0 10px rgba(167,139,250,0.5); }
+  .band-fill.alpha { background: linear-gradient(90deg, #34d399, #6ee7b7); box-shadow: 0 0 10px rgba(52,211,153,0.5); }
+  .band-fill.beta  { background: linear-gradient(90deg, #fbbf24, #fcd34d); box-shadow: 0 0 10px rgba(251,191,36,0.5); }
+  .band-fill.ri    { background: linear-gradient(90deg, var(--cyan), #67e8f9); box-shadow: 0 0 10px var(--cyan-glow); }
+
+  /* ----- Journey panel ----- */
+  .journey {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    justify-content: center;
+  }
+  .pill {
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 14px;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: all 300ms ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .pill.done {
+    background: rgba(52, 211, 153, 0.04);
+    border-color: rgba(52, 211, 153, 0.18);
+  }
+  .pill.active {
+    background: linear-gradient(90deg, rgba(34, 211, 238, 0.10), rgba(34, 211, 238, 0.02));
+    border-color: rgba(34, 211, 238, 0.35);
+    box-shadow: 0 0 24px rgba(34, 211, 238, 0.12);
+  }
+  .pill.active::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--cyan);
+    box-shadow: 0 0 12px var(--cyan-glow);
+    animation: pulse-bar 2s ease-in-out infinite;
+  }
+  @keyframes pulse-bar {
+    0%, 100% { opacity: 0.7; }
+    50%      { opacity: 1; }
+  }
+  .pill-num {
+    width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 600;
+    background: rgba(255,255,255,0.05);
+    color: var(--text-muted);
+  }
+  .pill.done .pill-num { background: rgba(52, 211, 153, 0.15); color: var(--green); }
+  .pill.active .pill-num { background: rgba(34, 211, 238, 0.2); color: var(--cyan); }
+  .pill-name { font-size: 13px; font-weight: 500; color: var(--text); }
+  .pill-name-jp { display: block; font-size: 11px; color: var(--text-faint); margin-top: 1px; }
+  .pill-meta { font-size: 12px; color: var(--text-muted); text-align: right; }
+  .pill-meta strong { color: var(--green); font-weight: 600; }
+  .pill.active .pill-meta { color: var(--cyan); }
+
+  /* Active pill micro progress bar */
+  .pill-progress {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 2px;
+    background: rgba(34, 211, 238, 0.12);
+  }
+  .pill-progress-fill {
+    height: 100%;
+    background: var(--cyan);
+    box-shadow: 0 0 8px var(--cyan-glow);
+    width: 0%;
+    transition: width 1000ms linear;
+  }
+
+  /* ----- Footer ----- */
+  .footer-left, .footer-right { display: flex; align-items: center; gap: 18px; }
+  .footer-sep {
+    width: 4px; height: 4px;
+    background: var(--text-faint);
+    border-radius: 50%;
+    opacity: 0.5;
+  }
+  .qr {
+    width: 32px; height: 32px;
+    background: conic-gradient(from 0deg at 50% 50%, #fff 0 25%, #000 0 50%, #fff 0 75%, #000 0);
+    background-size: 6px 6px;
+    border-radius: 4px;
+    border: 2px solid #fff;
+    opacity: 0.8;
+  }
+
+  .corner-glow {
+    position: absolute;
+    width: 200px; height: 200px;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .corner-glow.tl { top: -100px; left: -100px; background: radial-gradient(circle, var(--violet-glow), transparent 70%); }
+  .corner-glow.br { bottom: -100px; right: -100px; background: radial-gradient(circle, var(--cyan-glow), transparent 70%); }
+  .panel > * { position: relative; z-index: 1; }
+
+  .mockup-tag {
+    position: fixed;
+    top: 12px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(168, 85, 247, 0.15);
+    border: 1px solid rgba(168, 85, 247, 0.4);
+    color: #d8b4fe;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    font-weight: 600;
+    z-index: 100;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+</style>
+</head>
+<body>
+
+<div class="mockup-tag">Mockup · Exhibition Mode</div>
+
+<!-- ===== Top control bar ===== -->
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="brand">Relaxation <span class="brand-accent">×</span> VR</span>
+    <span class="exp-id mono">EXP_2026_0423</span>
+  </div>
+  <div class="topbar-center">
+    <div class="status-pill">
+      <span class="status-dot idle" id="statusDot"></span>
+      <span id="statusText">Ready</span>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <button class="btn-stop" id="btnStop" hidden>■ Stop</button>
+  </div>
+</div>
+
+<div class="stage">
+
+  <!-- LEFT: Participant feed -->
+  <div class="feed idle" id="feed">
+    <div class="feed-overlay">
+      <div class="live-chip">
+        <span class="live-dot"></span>
+        <span>Live · Participant View</span>
+      </div>
+
+      <div class="feed-title-row">
+        <div class="video-info">
+          <div class="video-stage" id="videoStage">Video 1 of 5</div>
+          <div class="video-name" id="videoName">Ocean Waves</div>
+          <div class="video-name-jp" id="videoNameJp">海の波</div>
+        </div>
+        <div class="video-timer">
+          <div class="video-timer-label">Remaining</div>
+          <div class="video-timer-value mono" id="videoTimer">00:15</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Idle / Start overlay -->
+    <div class="idle-overlay" id="idleOverlay">
+      <div class="idle-card">
+        <div class="idle-eyebrow">Ready to begin</div>
+        <div class="idle-title">Relaxation × VR</div>
+        <div class="idle-subtitle">5 videos · 15 seconds each · Live brain activity</div>
+        <button class="btn-start" id="btnStart">▶ Start Experience</button>
+        <div class="idle-meta">準備完了 · スタートボタンで開始</div>
+      </div>
+    </div>
+
+    <!-- Calculating overlay -->
+    <div class="calc-overlay" id="calcOverlay" hidden>
+      <div class="calc-spinner"></div>
+      <div class="calc-text">Calculating results</div>
+      <div class="calc-text-jp">結果を集計中</div>
+    </div>
+
+    <!-- Winner overlay -->
+    <div class="winner-overlay" id="winnerOverlay" hidden>
+      <div class="winner-eyebrow">★ Best Match · ベストマッチ</div>
+      <div class="winner-name" id="winnerName">Forest Rain</div>
+      <div class="winner-jp" id="winnerJp">森の雨</div>
+      <div class="winner-ri">RI <span class="mono" id="winnerRi">0.84</span></div>
+    </div>
+  </div>
+
+  <!-- RIGHT column -->
+  <div class="right-col">
+
+    <!-- Brain Activity -->
+    <div class="panel">
+      <div class="corner-glow tl"></div>
+      <div class="panel-header">
+        <div>
+          <span class="panel-title">Brain Activity</span>
+          <span class="panel-title-jp">脳活動</span>
+        </div>
+        <span class="panel-tag">EEG · Live Heatmap</span>
+      </div>
+
+      <div class="brain-grid">
+        <div class="brain-svg-wrap">
+          <svg class="brain-svg-el idle" id="brainSvg" viewBox="0 0 240 290" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <radialGradient id="hotTheta" cx="50%" cy="50%" r="50%">
+                <stop offset="0%"  stop-color="#a855f7" stop-opacity="1" />
+                <stop offset="60%" stop-color="#a855f7" stop-opacity="0.3" />
+                <stop offset="100%" stop-color="#a855f7" stop-opacity="0" />
+              </radialGradient>
+              <radialGradient id="hotAlpha" cx="50%" cy="50%" r="50%">
+                <stop offset="0%"  stop-color="#34d399" stop-opacity="1" />
+                <stop offset="60%" stop-color="#34d399" stop-opacity="0.3" />
+                <stop offset="100%" stop-color="#34d399" stop-opacity="0" />
+              </radialGradient>
+              <radialGradient id="hotRI" cx="50%" cy="50%" r="50%">
+                <stop offset="0%"  stop-color="#22d3ee" stop-opacity="1" />
+                <stop offset="60%" stop-color="#22d3ee" stop-opacity="0.3" />
+                <stop offset="100%" stop-color="#22d3ee" stop-opacity="0" />
+              </radialGradient>
+              <linearGradient id="brainSurface" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%"   stop-color="rgba(168,85,247,0.08)" />
+                <stop offset="100%" stop-color="rgba(34,211,238,0.05)" />
+              </linearGradient>
+              <clipPath id="brainClip">
+                <path d="M 120 18
+                         C 90 18, 64 28, 48 50
+                         C 28 78, 18 118, 24 158
+                         C 30 200, 50 240, 80 262
+                         C 100 274, 140 274, 160 262
+                         C 190 240, 210 200, 216 158
+                         C 222 118, 212 78, 192 50
+                         C 176 28, 150 18, 120 18 Z" />
+              </clipPath>
+              <filter id="hotBlur" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="6" />
+              </filter>
+            </defs>
+
+            <!-- Brain base -->
+            <path d="M 120 18
+                     C 90 18, 64 28, 48 50
+                     C 28 78, 18 118, 24 158
+                     C 30 200, 50 240, 80 262
+                     C 100 274, 140 274, 160 262
+                     C 190 240, 210 200, 216 158
+                     C 222 118, 212 78, 192 50
+                     C 176 28, 150 18, 120 18 Z"
+                  fill="url(#brainSurface)"
+                  stroke="rgba(255,255,255,0.18)"
+                  stroke-width="1.5" />
+
+            <!-- Hotspots clipped to brain -->
+            <g clip-path="url(#brainClip)" filter="url(#hotBlur)">
+              <circle class="hotspot" id="hotF"  cx="120" cy="58"  r="55" fill="url(#hotTheta)" opacity="0.4" />
+              <circle class="hotspot" id="hotPL" cx="82"  cy="208" r="48" fill="url(#hotAlpha)" opacity="0.4" />
+              <circle class="hotspot" id="hotPR" cx="158" cy="208" r="48" fill="url(#hotAlpha)" opacity="0.4" />
+              <circle class="hotspot" id="hotC"  cx="120" cy="138" r="42" fill="url(#hotRI)"    opacity="0.4" />
+            </g>
+
+            <!-- Central fissure -->
+            <path d="M 120 22 Q 118 80, 120 140 Q 122 200, 120 268"
+                  stroke="rgba(255,255,255,0.18)" fill="none" stroke-width="1" />
+
+            <!-- Sulci suggestions -->
+            <g stroke="rgba(255,255,255,0.10)" fill="none" stroke-width="1" stroke-linecap="round">
+              <path d="M 50 90  Q 80 100, 105 92" />
+              <path d="M 38 130 Q 70 142, 100 132" />
+              <path d="M 50 180 Q 80 192, 105 182" />
+              <path d="M 50 225 Q 78 232, 102 224" />
+              <path d="M 190 90  Q 160 100, 135 92" />
+              <path d="M 202 130 Q 170 142, 140 132" />
+              <path d="M 190 180 Q 160 192, 135 182" />
+              <path d="M 190 225 Q 162 232, 138 224" />
+            </g>
+
+            <!-- Brain outline on top -->
+            <path d="M 120 18
+                     C 90 18, 64 28, 48 50
+                     C 28 78, 18 118, 24 158
+                     C 30 200, 50 240, 80 262
+                     C 100 274, 140 274, 160 262
+                     C 190 240, 210 200, 216 158
+                     C 222 118, 212 78, 192 50
+                     C 176 28, 150 18, 120 18 Z"
+                  fill="none"
+                  stroke="rgba(255,255,255,0.22)"
+                  stroke-width="1.5" />
+
+            <!-- Electrode markers -->
+            <g class="electrodes" font-family="JetBrains Mono, monospace">
+              <circle cx="120" cy="40" r="2.5" fill="rgba(255,255,255,0.85)" />
+              <text x="127" y="44" font-size="9" fill="rgba(255,255,255,0.55)">Fz</text>
+
+              <circle cx="120" cy="135" r="2.5" fill="rgba(255,255,255,0.85)" />
+              <text x="127" y="139" font-size="9" fill="rgba(255,255,255,0.55)">Cz</text>
+
+              <circle cx="82" cy="222" r="2.5" fill="rgba(255,255,255,0.85)" />
+              <text x="60" y="238" font-size="9" fill="rgba(255,255,255,0.55)">O1</text>
+
+              <circle cx="158" cy="222" r="2.5" fill="rgba(255,255,255,0.85)" />
+              <text x="164" y="238" font-size="9" fill="rgba(255,255,255,0.55)">O2</text>
+            </g>
+          </svg>
+        </div>
+
+        <div class="ri-display">
+          <div class="ri-eyebrow">Relaxation Index</div>
+          <div class="ri-value mono idle" id="riValue">––</div>
+          <div class="ri-trend idle" id="riTrend">awaiting signal</div>
+          <div class="ri-scale" id="riScale" style="--ri-pct: 50%;"></div>
+        </div>
+      </div>
+
+      <div class="bands-row">
+        <div class="band-cell">
+          <div class="band-head"><span class="band-label">θ Fz</span><span class="band-value mono" id="valTheta">––</span></div>
+          <div class="band-track"><div class="band-fill theta" id="bandTheta" style="width: 0%"></div></div>
+        </div>
+        <div class="band-cell">
+          <div class="band-head"><span class="band-label">α post</span><span class="band-value mono" id="valAlpha">––</span></div>
+          <div class="band-track"><div class="band-fill alpha" id="bandAlpha" style="width: 0%"></div></div>
+        </div>
+        <div class="band-cell">
+          <div class="band-head"><span class="band-label">β / α</span><span class="band-value mono" id="valBeta">––</span></div>
+          <div class="band-track"><div class="band-fill beta" id="bandBeta" style="width: 0%"></div></div>
+        </div>
+        <div class="band-cell">
+          <div class="band-head"><span class="band-label">RI</span><span class="band-value mono" id="valRI">––</span></div>
+          <div class="band-track"><div class="band-fill ri" id="bandRI" style="width: 0%"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Journey -->
+    <div class="panel">
+      <div class="corner-glow br"></div>
+      <div class="panel-header">
+        <div>
+          <span class="panel-title">Journey</span>
+          <span class="panel-title-jp">旅</span>
+        </div>
+        <span class="panel-tag">5 Videos · 15s each</span>
+      </div>
+
+      <div class="journey" id="journey"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <div class="footer-left">
+    <span>5G Lab TEQS ATC · Osaka</span>
+    <span class="footer-sep"></span>
+    <span>リラクゼーション × VR 体験</span>
+  </div>
+  <div class="footer-right">
+    <span>Session #<span id="sessionCount">47</span> today</span>
+    <span class="footer-sep"></span>
+    <span>Scan to learn more</span>
+    <div class="qr" title="QR placeholder"></div>
+  </div>
+</div>
+
+<script>
+  // ===== Config =====
+  const VIDEOS = [
+    { en: 'Ocean Waves',   jp: '海の波' },
+    { en: 'Mountain Mist', jp: '山の霧' },
+    { en: 'Forest Rain',   jp: '森の雨' },
+    { en: 'Aurora Sky',    jp: 'オーロラの空' },
+    { en: 'Desert Stars',  jp: '砂漠の星' }
+  ];
+  const VIDEO_DURATION = 15;          // seconds per video
+  const CALC_DURATION  = 3;           // seconds of "calculating" before winner
+  const WINNER_HOLD    = 10;          // seconds the winner stays on screen
+
+  // ===== State =====
+  let mode = 'idle';                 // 'idle' | 'running' | 'calc' | 'winner'
+  let videoIdx = 0;
+  let videoSecs = VIDEO_DURATION;
+  let videoElapsed = 0;
+  const videoRIs = [];               // average RI per video
+  let currentRiSamples = [];
+
+  // ===== DOM refs =====
+  const $ = id => document.getElementById(id);
+  const feed = $('feed');
+  const idleOverlay = $('idleOverlay');
+  const calcOverlay = $('calcOverlay');
+  const winnerOverlay = $('winnerOverlay');
+  const btnStart = $('btnStart');
+  const btnStop  = $('btnStop');
+  const statusDot = $('statusDot');
+  const statusText = $('statusText');
+  const videoStage = $('videoStage');
+  const videoName  = $('videoName');
+  const videoNameJp = $('videoNameJp');
+  const videoTimer = $('videoTimer');
+  const winnerName = $('winnerName');
+  const winnerJp   = $('winnerJp');
+  const winnerRi   = $('winnerRi');
+  const sessionCount = $('sessionCount');
+  const journey = $('journey');
+  const brainSvg = $('brainSvg');
+
+  const hotF  = $('hotF');
+  const hotPL = $('hotPL');
+  const hotPR = $('hotPR');
+  const hotC  = $('hotC');
+
+  const riValue = $('riValue');
+  const riTrend = $('riTrend');
+  const riScale = $('riScale');
+
+  const bandIds = ['Theta', 'Alpha', 'Beta', 'RI'];
+  const bandEls = {};
+  bandIds.forEach(k => {
+    bandEls[k] = { bar: $('band' + k), val: $('val' + k) };
+  });
+
+  // ===== Helpers =====
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function fmtTime(s) {
+    const m = String(Math.floor(s / 60)).padStart(2, '0');
+    const ss = String(s % 60).padStart(2, '0');
+    return m + ':' + ss;
+  }
+
+  function setStatus(text, dotClass) {
+    statusText.textContent = text;
+    statusDot.className = 'status-dot ' + dotClass;
+  }
+
+  function setBrainMode(m) {
+    brainSvg.classList.remove('idle', 'calc', 'winner');
+    if (m === 'idle' || m === 'calc' || m === 'winner') brainSvg.classList.add(m);
+  }
+
+  function buildJourney() {
+    journey.innerHTML = '';
+    VIDEOS.forEach((v, i) => {
+      const pill = document.createElement('div');
+      pill.className = 'pill';
+      pill.dataset.idx = i;
+      pill.innerHTML = `
+        <div class="pill-num">${i + 1}</div>
+        <div>
+          <div class="pill-name">${v.en}<span class="pill-name-jp">${v.jp}</span></div>
+        </div>
+        <div class="pill-meta">Queued</div>
+        <div class="pill-progress"><div class="pill-progress-fill"></div></div>
+      `;
+      journey.appendChild(pill);
+    });
+  }
+
+  function updateJourney() {
+    [...journey.children].forEach((pill, i) => {
+      pill.classList.remove('done', 'active');
+      const meta = pill.querySelector('.pill-meta');
+      const num  = pill.querySelector('.pill-num');
+      const fill = pill.querySelector('.pill-progress-fill');
+
+      if (i < videoIdx) {
+        pill.classList.add('done');
+        num.textContent = '✓';
+        const ri = videoRIs[i];
+        meta.innerHTML = ri != null ? `RI <strong>${ri.toFixed(2)}</strong>` : '—';
+        fill.style.width = '100%';
+      } else if (i === videoIdx && mode === 'running') {
+        pill.classList.add('active');
+        num.textContent = String(i + 1);
+        meta.textContent = 'Now playing';
+        fill.style.width = ((videoElapsed / VIDEO_DURATION) * 100).toFixed(1) + '%';
+      } else {
+        num.textContent = String(i + 1);
+        meta.textContent = (i === videoIdx + 1) ? 'Up next' : 'Queued';
+        fill.style.width = '0%';
+      }
+    });
+  }
+
+  // ===== Lifecycle =====
+  function startExperiment() {
+    mode = 'running';
+    videoIdx = 0;
+    videoSecs = VIDEO_DURATION;
+    videoElapsed = 0;
+    videoRIs.length = 0;
+    currentRiSamples = [];
+
+    feed.classList.remove('idle', 'calc', 'winner');
+    idleOverlay.hidden = true;
+    calcOverlay.hidden = true;
+    winnerOverlay.hidden = true;
+    btnStop.hidden = false;
+
+    riValue.classList.remove('idle');
+    riTrend.classList.remove('idle');
+    setBrainMode(null);
+    setStatus('● Recording', 'live');
+    updateVideo();
+    buildJourney();
+    updateJourney();
+  }
+
+  function updateVideo() {
+    const v = VIDEOS[videoIdx];
+    videoStage.textContent = `Video ${videoIdx + 1} of ${VIDEOS.length}`;
+    videoName.textContent = v.en;
+    videoNameJp.textContent = v.jp;
+    videoTimer.textContent = fmtTime(videoSecs);
+  }
+
+  function advanceVideo() {
+    // Save RI mean for the video that just ended
+    if (currentRiSamples.length > 0) {
+      const avg = currentRiSamples.reduce((a, b) => a + b, 0) / currentRiSamples.length;
+      videoRIs[videoIdx] = avg;
+    } else {
+      videoRIs[videoIdx] = 0.5;
+    }
+    currentRiSamples = [];
+
+    videoIdx++;
+    if (videoIdx >= VIDEOS.length) {
+      enterCalculating();
+      return;
+    }
+    videoSecs = VIDEO_DURATION;
+    videoElapsed = 0;
+    updateVideo();
+    updateJourney();
+  }
+
+  function enterCalculating() {
+    mode = 'calc';
+    feed.classList.add('calc');
+    calcOverlay.hidden = false;
+    setBrainMode('calc');
+    setStatus('Calculating', 'calc');
+    updateJourney();
+    setTimeout(showWinner, CALC_DURATION * 1000);
+  }
+
+  function showWinner() {
+    mode = 'winner';
+    calcOverlay.hidden = true;
+    feed.classList.remove('calc');
+    feed.classList.add('winner');
+    // Highest mean RI wins
+    let bestIdx = 0, bestRi = -1;
+    for (let i = 0; i < VIDEOS.length; i++) {
+      const r = videoRIs[i] ?? 0;
+      if (r > bestRi) { bestRi = r; bestIdx = i; }
+    }
+    const w = VIDEOS[bestIdx];
+    winnerName.textContent = w.en;
+    winnerJp.textContent = w.jp;
+    winnerRi.textContent = bestRi.toFixed(2);
+    winnerOverlay.hidden = false;
+    setBrainMode('winner');
+    setStatus('Winner reveal', 'winner');
+    setTimeout(resetToIdle, WINNER_HOLD * 1000);
+  }
+
+  function resetToIdle() {
+    mode = 'idle';
+    videoIdx = 0;
+    videoSecs = VIDEO_DURATION;
+    videoElapsed = 0;
+    videoRIs.length = 0;
+    currentRiSamples = [];
+
+    feed.classList.remove('calc', 'winner');
+    feed.classList.add('idle');
+    winnerOverlay.hidden = true;
+    idleOverlay.hidden = false;
+    btnStop.hidden = true;
+
+    riValue.textContent = '––';
+    riValue.classList.add('idle');
+    riTrend.textContent = 'awaiting signal';
+    riTrend.classList.add('idle');
+    riTrend.classList.remove('down');
+    riScale.style.setProperty('--ri-pct', '50%');
+
+    bandIds.forEach(k => {
+      bandEls[k].bar.style.width = '0%';
+      bandEls[k].val.textContent = '––';
+    });
+
+    setBrainMode('idle');
+    setStatus('Ready', 'idle');
+
+    sessionCount.textContent = String(parseInt(sessionCount.textContent, 10) + 1);
+
+    buildJourney();
+  }
+
+  function stopExperiment() {
+    if (mode !== 'running') return;
+    // Save current video's RI before jumping to results
+    if (currentRiSamples.length > 0) {
+      videoRIs[videoIdx] = currentRiSamples.reduce((a,b)=>a+b,0) / currentRiSamples.length;
+    }
+    enterCalculating();
+  }
+
+  // ===== Per-second tick (timers) =====
+  setInterval(() => {
+    if (mode !== 'running') return;
+    videoSecs = Math.max(0, videoSecs - 1);
+    videoElapsed = VIDEO_DURATION - videoSecs;
+    videoTimer.textContent = fmtTime(videoSecs);
+    updateJourney();
+    if (videoSecs === 0) advanceVideo();
+  }, 1000);
+
+  // ===== EEG simulation tick (faster, drives bands + brain heatmap) =====
+  let last = { Theta: 0.55, Alpha: 0.6, Beta: 0.4, RI: 0.55 };
+  let lastRI = 0.55;
+
+  function simulateBands() {
+    if (mode === 'idle') return;
+    // Random walk; drift slowly upward over time per video to mimic relaxation
+    const drift = (mode === 'running') ? 0.005 : 0;
+    const next = {
+      Theta: clamp(last.Theta + (Math.random() - 0.5) * 0.06 + drift, 0.2, 0.95),
+      Alpha: clamp(last.Alpha + (Math.random() - 0.5) * 0.06 + drift, 0.3, 0.95),
+      Beta:  clamp(last.Beta  + (Math.random() - 0.5) * 0.05 - drift, 0.15, 0.7)
+    };
+    next.RI = clamp(0.4 * next.Alpha + 0.4 * next.Theta + 0.2 * (1 - next.Beta), 0.2, 0.95);
+    last = next;
+
+    // Update bars & values
+    bandIds.forEach(k => {
+      bandEls[k].bar.style.width = (next[k] * 100).toFixed(1) + '%';
+      bandEls[k].val.textContent = next[k].toFixed(2);
+    });
+
+    // Update RI hero
+    riValue.textContent = next.RI.toFixed(2);
+    riScale.style.setProperty('--ri-pct', (next.RI * 100).toFixed(1) + '%');
+    if (next.RI >= lastRI) {
+      riTrend.textContent = '↑ rising';
+      riTrend.classList.remove('down');
+    } else {
+      riTrend.textContent = '↓ settling';
+      riTrend.classList.add('down');
+    }
+    lastRI = next.RI;
+
+    // Sample for current video
+    if (mode === 'running') currentRiSamples.push(next.RI);
+
+    // Drive brain hotspots (only when running — calc/winner have own animation)
+    if (mode === 'running') {
+      hotF.setAttribute('opacity',  (0.3 + 0.65 * next.Theta).toFixed(2));
+      const aOp = (0.3 + 0.65 * next.Alpha).toFixed(2);
+      hotPL.setAttribute('opacity', aOp);
+      hotPR.setAttribute('opacity', aOp);
+      hotC.setAttribute('opacity',  (0.3 + 0.65 * next.RI).toFixed(2));
+
+      // Slight radius pulsing tied to band intensity for organic feel
+      hotF.setAttribute('r',  (50 + 12 * next.Theta).toFixed(1));
+      hotPL.setAttribute('r', (44 + 12 * next.Alpha).toFixed(1));
+      hotPR.setAttribute('r', (44 + 12 * next.Alpha).toFixed(1));
+      hotC.setAttribute('r',  (38 + 12 * next.RI).toFixed(1));
+    }
+  }
+  setInterval(simulateBands, 1200);
+
+  // ===== Wire up =====
+  btnStart.addEventListener('click', startExperiment);
+  btnStop.addEventListener('click', stopExperiment);
+
+  // Optional: spacebar to start (handy at events)
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Space' && mode === 'idle') {
+      e.preventDefault();
+      startExperiment();
+    } else if (e.key === 'Escape' && mode === 'running') {
+      stopExperiment();
+    }
+  });
+
+  // Init
+  buildJourney();
+  setBrainMode('idle');
+</script>
+
+</body>
+</html>

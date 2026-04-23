@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Experimento — Relajación 360°</title>
+  <title>Experiment — Relaxation 360° / 実験</title>
   <script src="js/app-base.js"></script>
   <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
   <style>
@@ -105,25 +105,97 @@
       font-weight: 700;
       cursor: pointer;
     }
+    #winner-announce {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 45;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      background: rgba(2, 6, 23, 0.92);
+      color: #e2e8f0;
+      font-family: system-ui, sans-serif;
+    }
+    #winner-announce.visible { display: flex; }
+    #winner-announce .announce-card {
+      width: min(34rem, 100%);
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      border-radius: 12px;
+      padding: 1.25rem 1.35rem;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+      text-align: center;
+    }
+    #winner-announce h2 {
+      margin: 0 0 0.35rem;
+      font-size: 1.15rem;
+      font-weight: 600;
+    }
+    #winner-announce .announce-sub {
+      margin: 0 0 1rem;
+      font-size: 0.85rem;
+      color: #94a3b8;
+      line-height: 1.45;
+    }
+    #winner-announce .countdown {
+      font-size: 3rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      margin: 0.25rem 0 1rem;
+      color: #fbbf24;
+    }
+    #winner-announce .results-list {
+      max-height: min(45vh, 14rem);
+      overflow: auto;
+      text-align: left;
+      border-radius: 8px;
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      background: rgba(2, 6, 23, 0.55);
+      padding: 0.35rem 0;
+      margin: 0;
+      list-style: none;
+    }
+    #winner-announce .results-list li {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.45rem 0.75rem;
+      font-size: 0.9rem;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    }
+    #winner-announce .results-list li:last-child { border-bottom: none; }
+    #winner-announce .vid-title { font-weight: 600; color: #f8fafc; word-break: break-word; }
+    #winner-announce .vid-ri { font-variant-numeric: tabular-nums; color: #5eead4; white-space: nowrap; }
+    #winner-announce .winner-row { background: rgba(94, 234, 212, 0.08); }
   </style>
 </head>
 <body>
   <div id="embedded-banner" aria-hidden="true">
-    Vista previa investigador (monitor) · audio silenciado — Researcher preview (muted)
+    Researcher preview (muted) / 研究者プレビュー（ミュート）
   </div>
   <div id="ws-status">WS: …</div>
   <div id="play-gate" aria-live="polite">
     <div>
       <div>To continue, tap to enable video playback.</div>
-      <div>Para continuar, toca para habilitar la reproducción.</div>
-      <button type="button" id="btn-play-gate">Enable video / Habilitar video</button>
+      <div>続行するには、タップして動画再生を有効化してください。</div>
+      <button type="button" id="btn-play-gate">Enable video / 動画を有効化</button>
     </div>
   </div>
 
-  <div id="waiting-screen">
+  <div id="winner-announce" aria-live="polite" aria-hidden="true">
+    <div class="announce-card">
+      <h2 id="winner-announce-title">Results / 結果</h2>
+      <p id="winner-announce-sub" class="announce-sub"></p>
+      <div id="winner-countdown" class="countdown">10</div>
+      <ul id="winner-results-list" class="results-list"></ul>
+    </div>
+  </div>
+
+  <div id="waiting-screen" data-mode="idle">
     <div>
-      <h2>Esperando configuración / Waiting for researcher</h2>
-      <p>El experimento comenzará cuando el investigador inicie la sesión desde el monitor.</p>
+      <h2 id="waiting-title">Waiting for researcher / 研究者を待機中</h2>
+      <p id="waiting-sub">The experiment will start when the researcher launches the session from the monitor.</p>
     </div>
   </div>
 
@@ -141,10 +213,10 @@
       <span class="hud-value" id="hud-clip">—</span>
     </div>
     <div class="hud-block">
-      <span class="hud-label">Tiempo / Time</span>
+      <span class="hud-label">Time / 時間</span>
       <span class="hud-value" id="hud-time">—</span>
     </div>
-    <button type="button" id="btn-end">Finalizar sesión / End session</button>
+    <button type="button" id="btn-end">End session / セッション終了</button>
   </div>
 
   <a-scene
@@ -165,7 +237,33 @@
     </a-assets>
 
     <a-entity id="camera-rig" position="0 1.6 0">
-      <a-camera id="main-camera" look-controls wasd-controls-enabled="false"></a-camera>
+      <a-camera id="main-camera" look-controls wasd-controls-enabled="false">
+        <!-- VR-facing UI panels (DOM overlays are often not composited in immersive WebXR / Quest browser) -->
+        <a-entity id="vr-ui-root" visible="false">
+          <a-plane
+            id="vr-wait-plane"
+            position="0 0 -1.6"
+            width="1.42"
+            height="0.78"
+            shader="flat"
+            side="double"
+            material="transparent: true; opacity: 1"
+            render-order="9000"
+            visible="false"
+          ></a-plane>
+          <a-plane
+            id="vr-announce-plane"
+            position="0 0 -1.5"
+            width="1.55"
+            height="0.92"
+            shader="flat"
+            side="double"
+            material="transparent: true; opacity: 1"
+            render-order="10000"
+            visible="false"
+          ></a-plane>
+        </a-entity>
+      </a-camera>
     </a-entity>
 
     <a-videosphere
@@ -200,7 +298,386 @@
       var playGateButton = document.getElementById("btn-play-gate");
       var pendingPlay = false;
       var runtimeSeqSeen = -1;
+      var polledSummarySeqSeen = -1;
       var lastControlSource = "none";
+      var awaitingWinnerSummary = false;
+      var winnerAnnouncementActive = false;
+      var winnerPlaybackActive = false;
+      var pendingSummaryMsg = null;
+      var announcementCountdownTimeout = null;
+      var waitingMode = "idle"; // "idle" | "calculating"
+
+      var winnerAnnounceEl = document.getElementById("winner-announce");
+      var winnerCountdownEl = document.getElementById("winner-countdown");
+      var winnerResultsListEl = document.getElementById("winner-results-list");
+      var winnerAnnounceTitleEl = document.getElementById("winner-announce-title");
+      var winnerAnnounceSubEl = document.getElementById("winner-announce-sub");
+      var waitingTitleEl = document.getElementById("waiting-title");
+      var waitingSubEl = document.getElementById("waiting-sub");
+
+      var vrUiRoot = document.getElementById("vr-ui-root");
+      var vrWaitPlane = document.getElementById("vr-wait-plane");
+      var vrAnnouncePlane = document.getElementById("vr-announce-plane");
+
+      var vrOverlay = {
+        sessionPresenting: false,
+        canvasWait: null,
+        canvasAnnounce: null,
+        texWait: null,
+        texAnnounce: null,
+        announceSummary: null,
+      };
+
+      function vrNavigatorSessionActive() {
+        try {
+          if (!navigator.xr || !navigator.xr.session) return false;
+          var s = navigator.xr.session;
+          return !!(s && s.renderState);
+        } catch (e) {
+          return false;
+        }
+      }
+
+      function vrSessionIsPresenting() {
+        try {
+          var scene = document.querySelector("a-scene");
+          if (!scene || !scene.hasLoaded) return false;
+          if (scene.xrSession) return true;
+          var xr = scene.renderer && scene.renderer.xr;
+          var session = xr && xr.getSession ? xr.getSession() : null;
+          if (session && session.renderState) return true;
+          return vrNavigatorSessionActive();
+        } catch (e) {
+          return false;
+        }
+      }
+
+      function vrShouldUsePanels() {
+        try {
+          var scene = document.querySelector("a-scene");
+          if (!scene || !scene.hasLoaded) return false;
+          if (scene.is("vr-mode")) return true;
+          return vrSessionIsPresenting();
+        } catch (e) {
+          return false;
+        }
+      }
+
+      function vrWaitTexNeedsUpdate() {
+        if (!vrOverlay.texWait) return;
+        vrOverlay.texWait.needsUpdate = true;
+      }
+
+      function vrAnnounceTexNeedsUpdate() {
+        if (!vrOverlay.texAnnounce) return;
+        vrOverlay.texAnnounce.needsUpdate = true;
+      }
+
+      function initVrUiPanels() {
+        if (!vrWaitPlane || !vrAnnouncePlane || typeof THREE === "undefined") return;
+
+        var cw = 1536;
+        var chWait = 864;
+        var chAnn = 1024;
+
+        var c1 = document.createElement("canvas");
+        c1.width = cw;
+        c1.height = chWait;
+        vrOverlay.canvasWait = c1;
+        vrOverlay.texWait = new THREE.CanvasTexture(c1);
+        if (THREE.SRGBColorSpace) vrOverlay.texWait.colorSpace = THREE.SRGBColorSpace;
+        else if (THREE.sRGBEncoding != null) vrOverlay.texWait.encoding = THREE.sRGBEncoding;
+        vrOverlay.texWait.minFilter = THREE.LinearFilter;
+        vrOverlay.texWait.magFilter = THREE.LinearFilter;
+
+        vrWaitPlane.setAttribute("material", "shader: flat; transparent: true; side: double");
+        function applyWaitMap() {
+          if (!vrWaitPlane || !vrOverlay.texWait) return false;
+          var applied = false;
+          vrWaitPlane.object3D.traverse(function (obj) {
+            if (obj.material && vrOverlay.texWait) {
+              obj.renderOrder = 9999;
+              obj.material.map = vrOverlay.texWait;
+              obj.material.transparent = true;
+              obj.material.depthTest = false;
+              obj.material.depthWrite = false;
+              obj.material.needsUpdate = true;
+              applied = true;
+            }
+          });
+          return applied;
+        }
+        if (!applyWaitMap()) {
+          vrWaitPlane.addEventListener(
+            "loaded",
+            function () {
+              applyWaitMap();
+              drawVrWaitingPanel();
+            },
+            { once: true }
+          );
+        }
+
+        var c2 = document.createElement("canvas");
+        c2.width = cw;
+        c2.height = chAnn;
+        vrOverlay.canvasAnnounce = c2;
+        vrOverlay.texAnnounce = new THREE.CanvasTexture(c2);
+        if (THREE.SRGBColorSpace) vrOverlay.texAnnounce.colorSpace = THREE.SRGBColorSpace;
+        else if (THREE.sRGBEncoding != null) vrOverlay.texAnnounce.encoding = THREE.sRGBEncoding;
+        vrOverlay.texAnnounce.minFilter = THREE.LinearFilter;
+        vrOverlay.texAnnounce.magFilter = THREE.LinearFilter;
+
+        vrAnnouncePlane.setAttribute("material", "shader: flat; transparent: true; side: double");
+        function applyAnnounceMap() {
+          if (!vrAnnouncePlane || !vrOverlay.texAnnounce) return false;
+          var applied = false;
+          vrAnnouncePlane.object3D.traverse(function (obj) {
+            if (obj.material && vrOverlay.texAnnounce) {
+              obj.renderOrder = 9999;
+              obj.material.map = vrOverlay.texAnnounce;
+              obj.material.transparent = true;
+              obj.material.depthTest = false;
+              obj.material.depthWrite = false;
+              obj.material.needsUpdate = true;
+              applied = true;
+            }
+          });
+          return applied;
+        }
+        if (!applyAnnounceMap()) {
+          vrAnnouncePlane.addEventListener(
+            "loaded",
+            function () {
+              applyAnnounceMap();
+              drawVrAnnouncementFromDom();
+            },
+            { once: true }
+          );
+        }
+
+        drawVrWaitingPanel();
+        drawVrAnnouncementPanel("", [], 10);
+
+        syncVrPanels();
+      }
+
+      function syncVrPanels() {
+        var immersive = vrShouldUsePanels();
+        vrOverlay.sessionPresenting = immersive;
+
+        if (!vrUiRoot || !vrWaitPlane || !vrAnnouncePlane) return;
+
+        var waitingShown = waitingEl && waitingEl.style.display !== "none";
+        var announcementShown =
+          winnerAnnounceEl && winnerAnnounceEl.classList.contains("visible");
+
+        // While the announcement panel is up, suppress the wait plane to avoid
+        // a co-located depth-test-disabled draw fight in the headset.
+        var showWaitPlane = immersive && waitingShown && !announcementShown;
+        var showAnnouncePlane = immersive && announcementShown;
+
+        vrUiRoot.setAttribute("visible", immersive ? true : false);
+        vrWaitPlane.setAttribute("visible", showWaitPlane ? true : false);
+        vrAnnouncePlane.setAttribute("visible", showAnnouncePlane ? true : false);
+
+        if (!immersive) return;
+
+        if (showWaitPlane) drawVrWaitingPanel();
+        if (showAnnouncePlane) drawVrAnnouncementFromDom();
+      }
+
+      function wrapTextLines(ctx, text, x, startY, maxW, lineStepPx, maxLines) {
+        var words = String(text || "").split(/\s+/).filter(Boolean);
+        var lines = [];
+        var line = "";
+        var i = 0;
+        var w = 0;
+        for (i = 0; i < words.length; i++) {
+          var test = line ? line + " " + words[i] : words[i];
+          if (ctx.measureText(test).width <= maxW) {
+            line = test;
+          } else {
+            if (line) lines.push(line);
+            line = words[i];
+            if (lines.length >= maxLines - 1) break;
+          }
+        }
+        if (line) lines.push(line);
+        var j = i;
+        if (j < words.length && lines.length >= maxLines) {
+          lines[lines.length - 1] =
+            lines[lines.length - 1].replace(/\.*$/, "") + "…";
+        }
+        for (w = 0; w < lines.length && w < maxLines; w++) {
+          ctx.fillText(lines[w], x, startY + lineStepPx * w);
+        }
+      }
+
+      function drawVrWaitingPanel() {
+        var canvas = vrOverlay.canvasWait;
+        var ctx = canvas && canvas.getContext ? canvas.getContext("2d") : null;
+        if (!canvas || !ctx || !vrOverlay.texWait) return;
+
+        var w = canvas.width;
+        var h = canvas.height;
+        var g = ctx.createLinearGradient(0, 0, w, h);
+        if (waitingMode === "calculating") {
+          g.addColorStop(0, "#1e1b4b");
+          g.addColorStop(1, "#312e81");
+        } else {
+          g.addColorStop(0, "#0f172a");
+          g.addColorStop(1, "#1e3a5f");
+        }
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, w, h);
+
+        var titleEn =
+          waitingMode === "calculating"
+            ? "Calculating results"
+            : "Waiting for researcher";
+        var titleJp =
+          waitingMode === "calculating" ? "結果を集計中" : "研究者を待機中";
+        var bodyEn =
+          waitingMode === "calculating"
+            ? "Results and the winner replay will appear here in a moment."
+            : "The experiment will start when the researcher launches the session from the monitor.";
+
+        ctx.fillStyle = "rgba(226,232,240,0.95)";
+        ctx.font = "bold 56px system-ui,sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(titleEn, w / 2, h * 0.34);
+
+        ctx.font = "44px system-ui,sans-serif";
+        ctx.fillStyle = "rgba(148,163,184,0.95)";
+        ctx.fillText(titleJp, w / 2, h * 0.43);
+
+        ctx.font = "34px system-ui,sans-serif";
+        ctx.fillStyle = "rgba(203,213,225,0.92)";
+        wrapTextLines(ctx, bodyEn, w / 2, h * 0.52, w * 0.78, h * 0.045, 5);
+
+        if (waitingMode === "calculating") {
+          ctx.font = "26px system-ui,sans-serif";
+          ctx.fillStyle = "rgba(251,191,36,0.92)";
+          ctx.fillText("•••", w / 2, h * 0.78);
+        }
+
+        vrOverlay.texWait.needsUpdate = true;
+      }
+
+      function setWaitingMode(mode) {
+        waitingMode = mode === "calculating" ? "calculating" : "idle";
+        if (waitingEl) waitingEl.setAttribute("data-mode", waitingMode);
+        if (waitingTitleEl) {
+          waitingTitleEl.textContent =
+            waitingMode === "calculating"
+              ? "Calculating results / 結果を集計中"
+              : "Waiting for researcher / 研究者を待機中";
+        }
+        if (waitingSubEl) {
+          waitingSubEl.textContent =
+            waitingMode === "calculating"
+              ? "Results and the winner replay will appear here in a moment."
+              : "The experiment will start when the researcher launches the session from the monitor.";
+        }
+        if (vrShouldUsePanels()) drawVrWaitingPanel();
+      }
+
+      function collectAnnouncementRowsDom() {
+        var rows = [];
+        if (!winnerResultsListEl) return rows;
+        var items = winnerResultsListEl.querySelectorAll("li");
+        var i = 0;
+        for (i = 0; i < items.length; i++) {
+          var li = items[i];
+          var spans = li.querySelectorAll("span");
+          rows.push({
+            title: spans[0] ? spans[0].textContent.trim() : "",
+            riText: spans[1] ? spans[1].textContent.trim() : "",
+            winner: li.classList.contains("winner-row"),
+          });
+        }
+        return rows;
+      }
+
+      function drawVrAnnouncementPanel(subtitleLines, rows, countdown) {
+        var canvas = vrOverlay.canvasAnnounce;
+        var ctx = canvas && canvas.getContext ? canvas.getContext("2d") : null;
+        if (!canvas || !ctx || !vrOverlay.texAnnounce) return;
+
+        var w = canvas.width;
+        var h = canvas.height;
+
+        ctx.fillStyle = "#020617";
+        ctx.fillRect(0, 0, w, h);
+
+        ctx.strokeStyle = "rgba(148,163,184,0.35)";
+        ctx.lineWidth = 4;
+        ctx.strokeRect(18, 18, w - 36, h - 36);
+
+        ctx.fillStyle = "rgba(248,250,252,0.96)";
+        ctx.font = "bold 52px system-ui,sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Relaxation results / 結果", w / 2, h * 0.11);
+
+        ctx.font = "30px system-ui,sans-serif";
+        ctx.fillStyle = "rgba(148,163,184,0.95)";
+        var sy = h * 0.155;
+        var si = 0;
+        for (si = 0; si < subtitleLines.length; si++) {
+          ctx.fillText(subtitleLines[si], w / 2, sy + si * h * 0.045);
+        }
+
+        ctx.font = "bold 130px system-ui,sans-serif";
+        ctx.fillStyle = "#fbbf24";
+        ctx.fillText(String(countdown != null ? countdown : "10"), w / 2, h * 0.34);
+
+        var tableTop = h * 0.42;
+        var rowH = Math.min(56, (h - tableTop - 70) / Math.max(1, rows.length || 1));
+        var ri = 0;
+        for (ri = 0; ri < rows.length; ri++) {
+          var r = rows[ri];
+          var y0 = tableTop + ri * rowH;
+          if (r.winner) {
+            ctx.fillStyle = "rgba(94,234,212,0.12)";
+            ctx.fillRect(70, y0 - rowH * 0.62, w - 140, rowH * 0.92);
+          }
+          ctx.font = "34px system-ui,sans-serif";
+          ctx.textAlign = "left";
+          ctx.fillStyle = "rgba(248,250,252,0.96)";
+          ctx.fillText(r.title || "", 90, y0);
+          ctx.textAlign = "right";
+          ctx.fillStyle = r.winner ? "rgba(94,234,212,0.98)" : "rgba(94,234,212,0.82)";
+          ctx.fillText(r.riText || "", w - 90, y0);
+        }
+
+        ctx.textAlign = "center";
+        ctx.font = "26px system-ui,sans-serif";
+        ctx.fillStyle = "rgba(100,116,139,0.95)";
+        ctx.fillText("Winner replay starts after countdown · カウントダウン後に勝者再生", w / 2, h - 42);
+
+        vrOverlay.texAnnounce.needsUpdate = true;
+      }
+
+      function subtitleLinesFromWinnerAnnounceDom() {
+        var lines = [];
+        if (!winnerAnnounceSubEl) return lines;
+        var spans = winnerAnnounceSubEl.querySelectorAll("span");
+        var i = 0;
+        for (i = 0; i < spans.length; i++) {
+          var t = spans[i].textContent.trim();
+          if (t) lines.push(t);
+        }
+        return lines;
+      }
+
+      function drawVrAnnouncementFromDom() {
+        var subs = subtitleLinesFromWinnerAnnounceDom();
+        var rows = collectAnnouncementRowsDom();
+        var cd = winnerCountdownEl ? Number(winnerCountdownEl.textContent) : 10;
+        if (!isFinite(cd)) cd = 10;
+        drawVrAnnouncementPanel(subs, rows, cd);
+      }
 
       if (isEmbedded) {
         document.getElementById("embedded-banner").classList.add("visible");
@@ -245,12 +722,189 @@
           assetVid.pause();
         }
         hidePlayGate();
+        // If the local carousel just finished, surface a "calculating"
+        // intermediate panel (DOM + VR canvas) so the headset isn't left
+        // with an idle "waiting" message during the gap before the
+        // recorder ships the experiment_summary.
+        setWaitingMode(awaitingWinnerSummary ? "calculating" : "idle");
+        syncVrPanels();
       }
 
       function showExperiment() {
         waitingEl.style.display = "none";
         hudEl.classList.add("visible");
         videoWorld.setAttribute("visible", true);
+        syncVrPanels();
+      }
+
+      function clearAnnouncementTimers() {
+        if (announcementCountdownTimeout) {
+          clearTimeout(announcementCountdownTimeout);
+          announcementCountdownTimeout = null;
+        }
+      }
+
+      function hideWinnerAnnouncementOverlay() {
+        winnerAnnouncementActive = false;
+        pendingSummaryMsg = null;
+        clearAnnouncementTimers();
+        if (winnerAnnounceEl) {
+          winnerAnnounceEl.classList.remove("visible");
+          winnerAnnounceEl.setAttribute("aria-hidden", "true");
+        }
+        // The announcement is gone; if a waiting screen is visible after
+        // this, it should be the plain "idle" copy again.
+        if (!awaitingWinnerSummary) setWaitingMode("idle");
+        syncVrPanels();
+      }
+
+      function fmtRi(v) {
+        if (typeof v !== "number" || isNaN(v)) return "—";
+        return v.toFixed(2);
+      }
+
+      function buildResultsRows(summary) {
+        var map = summary && summary.per_video_mean_relaxation;
+        var winnerId = summary && summary.winner_video_id;
+        var rows = [];
+        var ids = [];
+        var k = 0;
+        if (map && typeof map === "object") {
+          for (k in map) {
+            if (Object.prototype.hasOwnProperty.call(map, k)) ids.push(k);
+          }
+        }
+        if (!ids.length && playlist.length) {
+          for (k = 0; k < playlist.length; k++) ids.push(String(playlist[k].id || ""));
+        }
+        ids.sort();
+        for (k = 0; k < ids.length; k++) {
+          var id = ids[k];
+          var item = findVideoById(id);
+          var title = item ? item.title || item.id : id;
+          var ri = map && typeof map[id] === "number" ? map[id] : null;
+          rows.push({
+            id: id,
+            title: title,
+            ri: ri,
+            isWinner: winnerId != null && String(winnerId) === String(id),
+          });
+        }
+        rows.sort(function (a, b) {
+          var ra = typeof a.ri === "number" ? a.ri : -Infinity;
+          var rb = typeof b.ri === "number" ? b.ri : -Infinity;
+          return rb - ra;
+        });
+        return rows;
+      }
+
+      function renderWinnerAnnouncement(summary) {
+        if (!winnerAnnounceEl || !winnerResultsListEl || !winnerCountdownEl) return;
+        var winnerId = summary.winner_video_id;
+        var winItem = findVideoById(winnerId);
+        var winTitle = winItem ? winItem.title || winItem.id : winnerId || "—";
+        if (winnerAnnounceTitleEl) winnerAnnounceTitleEl.textContent = "Relaxation results / 結果";
+        if (winnerAnnounceSubEl) {
+          winnerAnnounceSubEl.innerHTML =
+            '<span style="display:block;margin-bottom:0.35rem"><strong>Winner / 優勝：</strong> ' +
+            String(winTitle) +
+            "</span>" +
+            '<span style="display:block;color:#cbd5e1;font-size:0.8rem">Winner replay starts after countdown / カウントダウン後に勝者再生</span>';
+        }
+        winnerResultsListEl.innerHTML = "";
+        var rows = buildResultsRows(summary);
+        var i = 0;
+        for (i = 0; i < rows.length; i++) {
+          var r = rows[i];
+          var li = document.createElement("li");
+          if (r.isWinner) li.className = "winner-row";
+          var left = document.createElement("span");
+          left.className = "vid-title";
+          left.textContent = String(r.title || r.id || "");
+          var right = document.createElement("span");
+          right.className = "vid-ri";
+          right.textContent =
+            typeof r.ri === "number" ? "mean RI " + fmtRi(r.ri) : "mean RI —";
+          li.appendChild(left);
+          li.appendChild(right);
+          winnerResultsListEl.appendChild(li);
+        }
+        winnerCountdownEl.textContent = "10";
+        syncVrPanels();
+      }
+
+      function beginWinnerAnnouncement(summaryMsg) {
+        pendingSummaryMsg = summaryMsg;
+        winnerAnnouncementActive = true;
+        renderWinnerAnnouncement(summaryMsg);
+        if (winnerAnnounceEl) {
+          winnerAnnounceEl.classList.add("visible");
+          winnerAnnounceEl.setAttribute("aria-hidden", "false");
+        }
+
+        clearAnnouncementTimers();
+        var secs = 10;
+        if (winnerCountdownEl) winnerCountdownEl.textContent = String(secs);
+        syncVrPanels();
+        announcementCountdownTimeout = setTimeout(function tick() {
+          secs -= 1;
+          if (winnerCountdownEl) winnerCountdownEl.textContent = String(Math.max(0, secs));
+          drawVrAnnouncementFromDom();
+          syncVrPanels();
+          if (secs <= 0) {
+            announcementCountdownTimeout = null;
+            var wid = pendingSummaryMsg && pendingSummaryMsg.winner_video_id;
+            hideWinnerAnnouncementOverlay();
+            playWinnerClip(wid);
+            return;
+          }
+          announcementCountdownTimeout = setTimeout(tick, 1000);
+        }, 1000);
+      }
+
+      function cancelWinnerFlow() {
+        awaitingWinnerSummary = false;
+        hideWinnerAnnouncementOverlay();
+      }
+
+      function findVideoById(videoId) {
+        var i = 0;
+        for (i = 0; i < playlist.length; i++) {
+          if (String(playlist[i].id || "") === String(videoId || "")) return playlist[i];
+        }
+        if (contentData && Array.isArray(contentData.videos)) {
+          for (i = 0; i < contentData.videos.length; i++) {
+            if (String(contentData.videos[i].id || "") === String(videoId || "")) return contentData.videos[i];
+          }
+        }
+        return null;
+      }
+
+      function playWinnerClip(winnerId) {
+        var item = findVideoById(winnerId);
+        if (!item) {
+          logSession("winner not found", winnerId);
+          return;
+        }
+        clearClipTimer();
+        experimentActive = false;
+        winnerPlaybackActive = true;
+        showExperiment();
+
+        var url = window.assetUrl(item.video_url_360);
+        assetVid.pause();
+        assetVid.removeAttribute("src");
+        assetVid.setAttribute("src", url);
+        assetVid.loop = true;
+        assetVid.load();
+        // WebXR often blocks unmuted autoplay unless there was a recent user gesture.
+        // Prefer reliability in-headset: keep winner replay muted in VR/presenting sessions.
+        assetVid.muted = !!isEmbedded || vrShouldUsePanels();
+        tryPlayCurrentVideo();
+
+        document.getElementById("hud-title").textContent = item.title || item.id || String(winnerId || "—");
+        document.getElementById("hud-clip").textContent = "Winner replay / 勝者リプレイ";
+        document.getElementById("hud-time").textContent = "∞";
       }
 
       function connectWebSocket() {
@@ -298,6 +952,12 @@
         if (msg.type === "start_experiment") {
           if (!msg._source) msg._source = "ws";
           lastControlSource = msg._source;
+          awaitingWinnerSummary = false;
+          winnerPlaybackActive = false;
+          // Forget any old summary_seq so the next one for this run is
+          // delivered (the recorder also drops `summary` on a fresh start).
+          polledSummarySeqSeen = -1;
+          cancelWinnerFlow();
           // Ignore duplicate start from mixed WS + polling paths.
           if (
             experimentActive &&
@@ -327,11 +987,21 @@
         if (msg.type === "stop_video") {
           if (!msg._source) msg._source = "ws";
           lastControlSource = msg._source;
-          endLocalExperiment();
+          if (!winnerPlaybackActive && !winnerAnnouncementActive && !awaitingWinnerSummary) {
+            endLocalExperiment();
+          }
           return;
         }
         if (msg.type === "experiment_summary") {
           logSession("summary", msg);
+          // Idempotency guard: if the announce / replay is already up
+          // (e.g. WS delivered the summary first and polling is about
+          // to redeliver it ~1 s later), don't restart the countdown.
+          if (winnerAnnouncementActive || winnerPlaybackActive) return;
+          if (awaitingWinnerSummary) {
+            awaitingWinnerSummary = false;
+            beginWinnerAnnouncement(msg);
+          }
         }
       }
 
@@ -343,11 +1013,57 @@
           })
           .then(function (st) {
             var seq = Number(st && st.seq);
-            if (!isFinite(seq) || seq <= runtimeSeqSeen) return;
-            runtimeSeqSeen = seq;
-            if (ws && ws.readyState === 1) {
+            var seqAdvanced = isFinite(seq) && seq > runtimeSeqSeen;
+            if (seqAdvanced) runtimeSeqSeen = seq;
+
+            var hasSummary =
+              !!st && !!st.summary && st.summary.winner_video_id != null;
+            var summarySeq = hasSummary
+              ? Number(st.summary_seq != null ? st.summary_seq : st.seq || 0)
+              : -1;
+            var newSummary =
+              hasSummary &&
+              isFinite(summarySeq) &&
+              summarySeq > polledSummarySeqSeen;
+            // Strict experiment-id correlation prevents replaying a stale
+            // summary from a previous run on first page load.
+            var experimentMatched =
+              !!experimentId &&
+              !!st.experiment_id &&
+              String(experimentId) === String(st.experiment_id);
+
+            // A fresh summary takes precedence over every other branch.
+            // Tearing down any in-flight local carousel here (rather than
+            // letting the active=false → stop_video path swallow the
+            // event with awaitingWinnerSummary still false) is what makes
+            // the announcement / countdown / winner replay actually fire
+            // in poll-only mode (e.g. Quest VR over HTTPS).
+            if (newSummary && experimentMatched) {
+              polledSummarySeqSeen = summarySeq;
+              // If the announcement / winner replay is already in flight,
+              // just consume the seq and bail — handleMessage would
+              // no-op anyway and we'd otherwise tear down state for it.
+              if (winnerAnnouncementActive || winnerPlaybackActive) return;
+              if (experimentActive) {
+                experimentActive = false;
+                clearClipTimer();
+                if (assetVid) assetVid.pause();
+              }
+              awaitingWinnerSummary = true;
+              handleMessage({
+                type: "experiment_summary",
+                _source: "poll",
+                experiment_id: st.experiment_id || "",
+                per_video_mean_relaxation:
+                  st.summary.per_video_mean_relaxation || {},
+                winner_video_id: st.summary.winner_video_id,
+              });
               return;
             }
+
+            if (!seqAdvanced) return;
+            if (ws && ws.readyState === 1) return;
+
             if (st.active) {
               if (!experimentActive) {
                 handleMessage({
@@ -394,12 +1110,14 @@
       function startClipAt(idx, fromRemote) {
         clearClipTimer();
         if (!playlist.length || idx >= playlist.length) return;
+        winnerPlaybackActive = false;
         videoIndex = idx;
         var item = playlist[idx];
         var url = window.assetUrl(item.video_url_360);
         assetVid.pause();
         assetVid.removeAttribute("src");
         assetVid.setAttribute("src", url);
+        assetVid.loop = false;
         assetVid.load();
         var durSec = durations[idx] != null ? Number(durations[idx]) : Number(item.duration_seconds) || 120;
         var onMeta = function () {
@@ -444,6 +1162,7 @@
         if (next < playlist.length) {
           startClipAt(next, false);
         } else {
+          awaitingWinnerSummary = true;
           if (ws && ws.readyState === 1) {
             ws.send(JSON.stringify({ type: "stop" }));
           }
@@ -453,6 +1172,8 @@
 
       function endLocalExperiment() {
         experimentActive = false;
+        winnerPlaybackActive = false;
+        hideWinnerAnnouncementOverlay();
         clearClipTimer();
         assetVid.pause();
         showWaiting();
@@ -460,6 +1181,7 @@
       }
 
       document.getElementById("btn-end").addEventListener("click", function () {
+        cancelWinnerFlow();
         if (ws && ws.readyState === 1) {
           ws.send(JSON.stringify({ type: "stop" }));
         }
@@ -490,16 +1212,26 @@
       connectWebSocket();
       setInterval(pollRuntimeState, 1000);
       pollRuntimeState();
+      setInterval(function () {
+        if (vrSessionIsPresenting() !== vrOverlay.sessionPresenting) {
+          syncVrPanels();
+        }
+      }, 250);
 
       document.querySelector("a-scene").addEventListener("loaded", function () {
         var scene = document.querySelector("a-scene");
+        initVrUiPanels();
+        syncVrPanels();
+
         scene.addEventListener("enter-vr", function () {
           var vw = document.getElementById("video-world");
           if (vw) vw.setAttribute("position", "0 -1.5 0");
+          syncVrPanels();
         });
         scene.addEventListener("exit-vr", function () {
           var vw = document.getElementById("video-world");
           if (vw) vw.setAttribute("position", "0 0 0");
+          syncVrPanels();
         });
       });
     })();
