@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ExhibitionView } from "./ExhibitionView";
 
 type VideoItem = {
   id: string;
@@ -8,8 +9,8 @@ type VideoItem = {
   duration_seconds: number;
 };
 
-const DEFAULT_DURATIONS = [90, 90, 90, 90, 90];
 const DEFAULT_GLOBAL_DURATION = 90;
+const DEFAULT_EXHIBITION_TOTAL_DURATION = 90;
 
 type BandSample = {
   t: number;
@@ -98,6 +99,7 @@ function buildParticipantPreviewUrl(input: string): string {
 export function App() {
   const bridge = window.recorderBridge;
   const [tab, setTab] = useState<"control" | "signals">("control");
+  const [mode, setMode] = useState<"operator" | "exhibition">("operator");
   const [wsState, setWsState] = useState<string>("…");
   const [participantUrlInput, setParticipantUrlInput] = useState(
     "https://127.0.0.1:8443/experiment-wait-config.html"
@@ -108,7 +110,10 @@ export function App() {
   const [baselineCal, setBaselineCal] = useState(0);
   const [simulationMode, setSimulationMode] = useState(true);
   const [globalDuration, setGlobalDuration] = useState<number>(DEFAULT_GLOBAL_DURATION);
-  const [, setVideos] = useState<VideoItem[]>([]);
+  const [exhibitionTotalDuration, setExhibitionTotalDuration] = useState<number>(
+    DEFAULT_EXHIBITION_TOTAL_DURATION
+  );
+  const [videos, setVideos] = useState<VideoItem[]>([]);
   const [currentTitle, setCurrentTitle] = useState("—");
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
   const [ri, setRi] = useState<number | null>(null);
@@ -205,24 +210,56 @@ export function App() {
     setIframeSrc(buildParticipantPreviewUrl(participantUrlInput));
   }, [participantUrlInput]);
 
-  const onStart = () => {
-    setSummary(null);
-    setRiHistory([]);
-    setBandsHistory([]);
-    send({
-      type: "controller_start",
-      session_type: "relaxation_playlist",
-      experiment_id: experimentId,
-      video_index: 0,
-      durations_seconds: Array(5).fill(Math.max(5, Number(globalDuration) || DEFAULT_GLOBAL_DURATION)),
-      baseline_calibration_seconds: baselineCal,
-      simulate_eeg: simulationMode,
-    });
-  };
+  const sendStart = useCallback(
+    (durationPerVideo: number, forceSimulation?: boolean) => {
+      setSummary(null);
+      setRiHistory([]);
+      setBandsHistory([]);
+      send({
+        type: "controller_start",
+        session_type: "relaxation_playlist",
+        experiment_id: experimentId,
+        video_index: 0,
+        durations_seconds: Array(5).fill(Math.max(5, durationPerVideo)),
+        baseline_calibration_seconds: baselineCal,
+        simulate_eeg: forceSimulation ?? simulationMode,
+      });
+    },
+    [send, experimentId, baselineCal, simulationMode]
+  );
+
+  const onStart = () =>
+    sendStart(Number(globalDuration) || DEFAULT_GLOBAL_DURATION);
+
+  const exhibitionSegmentDuration = useMemo(() => {
+    const total = Math.max(30, Number(exhibitionTotalDuration) || DEFAULT_EXHIBITION_TOTAL_DURATION);
+    return Math.max(5, Math.floor(total / 6));
+  }, [exhibitionTotalDuration]);
+
+  const onStartExhibition = useCallback(
+    () => sendStart(exhibitionSegmentDuration),
+    [sendStart, exhibitionSegmentDuration]
+  );
+  const onStartExhibitionSimulation = useCallback(
+    () => sendStart(exhibitionSegmentDuration, true),
+    [sendStart, exhibitionSegmentDuration]
+  );
 
   const onStop = () => {
     send({ type: "stop" });
   };
+
+  // Cmd/Ctrl+Shift+E toggles Exhibition Mode (works from either mode).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "e" || e.key === "E")) {
+        e.preventDefault();
+        setMode((m) => (m === "exhibition" ? "operator" : "exhibition"));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const sparkHeights = useMemo(() => {
     if (!riHistory.length) return [];
@@ -248,6 +285,28 @@ export function App() {
     return { W, H, PAD, paths };
   }, [bandsHistory]);
 
+  if (mode === "exhibition") {
+    return (
+      <ExhibitionView
+        wsState={wsState}
+        experimentId={experimentId}
+        currentIndex={currentIndex}
+        videos={videos}
+        ri={ri}
+        bandsHistory={bandsHistory}
+        summary={summary}
+        iframeSrc={iframeSrc}
+        durationPerVideo={exhibitionSegmentDuration}
+        exhibitionTotalDuration={exhibitionTotalDuration}
+        onExhibitionTotalDurationChange={setExhibitionTotalDuration}
+        onStart={onStartExhibition}
+        onStartSimulation={onStartExhibitionSimulation}
+        onStop={onStop}
+        onExitExhibition={() => setMode("operator")}
+      />
+    );
+  }
+
   return (
     <div className="monitor-root">
       <header className="app-header">
@@ -260,7 +319,17 @@ export function App() {
             <strong>Start</strong> を押すと、レコーダーのセッションが開始されます。
           </p>
         </div>
-        <span className={"ws-pill " + (wsState === "open" ? "open" : "")}>Recorder WS: {wsState}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span className={"ws-pill " + (wsState === "open" ? "open" : "")}>Recorder WS: {wsState}</span>
+          <button
+            type="button"
+            className="toggle-exhibition-btn"
+            onClick={() => setMode("exhibition")}
+            title="Switch to Exhibition Mode (Cmd/Ctrl+Shift+E)"
+          >
+            ✦ Exhibition Mode
+          </button>
+        </div>
       </header>
 
       <nav className="tabs main-tabs">

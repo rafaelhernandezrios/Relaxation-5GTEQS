@@ -5,35 +5,35 @@
       "title": "EARTH",
       "video_url_360": "videos/EARTH.mp4",
       "thumbnail_url": "",
-      "duration_seconds": 90
+      "duration_seconds": 20
     },
     {
       "id": "forest",
       "title": "FOREST",
       "video_url_360": "videos/FOREST.mp4",
       "thumbnail_url": "",
-      "duration_seconds": 90
+      "duration_seconds": 20
     },
     {
       "id": "meadow",
       "title": "BEACH",
-      "video_url_360": "videos/PLAYA .mp4",
+      "video_url_360": "videos/PLAYA.mp4",
       "thumbnail_url": "",
-      "duration_seconds": 90
+      "duration_seconds": 20
     },
     {
       "id": "river",
       "title": "SHRINE",
       "video_url_360": "videos/TEMPLO.mp4",
       "thumbnail_url": "",
-      "duration_seconds": 90
+      "duration_seconds": 20
     },
     {
       "id": "sky",
       "title": "CENOTE",
       "video_url_360": "videos/CENOTE.mp4",
       "thumbnail_url": "",
-      "duration_seconds": 90
+      "duration_seconds": 20
     }
   ]
 }

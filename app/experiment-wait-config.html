@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Experiment — Relaxation 360° / 実験</title>
   <script src="js/app-base.js"></script>
-  <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
+  <script src="js/aframe.min.js"></script>
   <style>
     #waiting-screen {
       position: fixed;
@@ -895,25 +895,28 @@
         assetVid.pause();
         assetVid.removeAttribute("src");
         assetVid.setAttribute("src", url);
-        assetVid.loop = true;
+        assetVid.loop = false;
         assetVid.load();
         // WebXR often blocks unmuted autoplay unless there was a recent user gesture.
         // Prefer reliability in-headset: keep winner replay muted in VR/presenting sessions.
         assetVid.muted = !!isEmbedded || vrShouldUsePanels();
         tryPlayCurrentVideo();
+        clearClipTimer();
+        var replaySec = durations && durations.length ? Number(durations[0]) : Number(item.duration_seconds) || 15;
+        replaySec = Math.max(1, replaySec);
+        clipDeadline = Date.now() + replaySec * 1000;
+        scheduleTick();
+        timerId = setTimeout(endLocalExperiment, replaySec * 1000);
 
         document.getElementById("hud-title").textContent = item.title || item.id || String(winnerId || "—");
         document.getElementById("hud-clip").textContent = "Winner replay / 勝者リプレイ";
-        document.getElementById("hud-time").textContent = "∞";
+        document.getElementById("hud-time").textContent = replaySec.toFixed(0) + " s";
       }
 
       function connectWebSocket() {
         var url = window.wsRecorderUrl();
-        var isLocalHost = location.hostname === "127.0.0.1" || location.hostname === "localhost";
-        if (!isEmbedded && location.protocol === "https:" && !isLocalHost) {
-          setWsStatus("disabled (poll mode)");
-          return;
-        }
+        // Always try WSS to the same host as this page (Quest / LAN). If TLS fails
+        // (self-signed on :8765), onclose retries; pollRuntimeState remains the fallback.
         setWsStatus("connecting…");
         try {
           ws = new WebSocket(url);
@@ -1061,8 +1064,34 @@
               return;
             }
 
+            // Poll-only fallback (e.g. Quest over HTTPS where WSS :8765 may fail):
+            // if the recorder shows active but we never received start_experiment, start locally.
+            if (
+              (!ws || ws.readyState !== 1) &&
+              st &&
+              st.active &&
+              !experimentActive &&
+              Array.isArray(st.videos) &&
+              st.videos.length > 0
+            ) {
+              if (isFinite(seq) && seq > runtimeSeqSeen) {
+                runtimeSeqSeen = seq;
+              }
+              handleMessage({
+                type: "start_experiment",
+                _source: "poll",
+                experiment_id: st.experiment_id || "",
+                videos: st.videos || [],
+                durations_seconds: st.durations_seconds || [],
+                video_index: Number(st.video_index) || 0,
+              });
+              return;
+            }
+
             if (!seqAdvanced) return;
-            if (ws && ws.readyState === 1) return;
+            // Do NOT skip polling when WebSocket is open: on some headsets the WSS
+            // handshake reports OPEN while messages are unreliable; poll must still
+            // drive start_experiment / force_video / stop from runtime-state.json.
 
             if (st.active) {
               if (!experimentActive) {
@@ -1120,19 +1149,23 @@
         assetVid.loop = false;
         assetVid.load();
         var durSec = durations[idx] != null ? Number(durations[idx]) : Number(item.duration_seconds) || 120;
+        var playLen = Math.max(1, durSec);
+        // Keep timer authoritative from controller/runtime state.
+        // Metadata/load failures should not block progression through all 5 clips.
+        clipDeadline = Date.now() + playLen * 1000;
+        scheduleTick();
+        timerId = setTimeout(onClipTimerEnd, playLen * 1000);
         var onMeta = function () {
           assetVid.removeEventListener("loadedmetadata", onMeta);
-          var fileDur = assetVid.duration;
-          if (!isFinite(fileDur) || fileDur <= 0) fileDur = durSec;
-          var playLen = Math.min(durSec, fileDur);
-          clipDeadline = Date.now() + playLen * 1000;
           // Safari on external devices may block autoplay with audio until user gesture.
           assetVid.muted = !!isEmbedded;
           tryPlayCurrentVideo();
-          scheduleTick();
-          timerId = setTimeout(onClipTimerEnd, playLen * 1000);
+        };
+        var onErr = function () {
+          assetVid.removeEventListener("error", onErr);
         };
         assetVid.addEventListener("loadedmetadata", onMeta);
+        assetVid.addEventListener("error", onErr, { once: true });
 
         document.getElementById("hud-title").textContent = item.title || item.id;
         document.getElementById("hud-clip").textContent = idx + 1 + " / " + playlist.length;
@@ -1172,6 +1205,7 @@
 
       function endLocalExperiment() {
         experimentActive = false;
+        experimentId = "";
         winnerPlaybackActive = false;
         hideWinnerAnnouncementOverlay();
         clearClipTimer();
@@ -1210,7 +1244,7 @@
         });
 
       connectWebSocket();
-      setInterval(pollRuntimeState, 1000);
+      setInterval(pollRuntimeState, 400);
       pollRuntimeState();
       setInterval(function () {
         if (vrSessionIsPresenting() !== vrOverlay.sessionPresenting) {
