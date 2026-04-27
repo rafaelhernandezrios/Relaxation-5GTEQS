@@ -1,8 +1,16 @@
 # Relaxation 360° + EEG (lab stack)
 
-**EN:** HTTPS **A-Frame** participant app, **Python** WebSocket bridge from LSL stream **“AURA”** (or `--mock-eeg`), and **Electron** researcher monitor. Spec reference: [LATEST_EXECUTABLE_STACK.md](LATEST_EXECUTABLE_STACK.md).
+**EN:** HTTPS **A-Frame** participant app (offline-ready, local A-Frame bundle), **Python** WebSocket bridge from LSL stream **“AURA”** (or `--mock-eeg`), and **Electron** researcher monitor with Operator + Exhibition modes. Spec reference: [LATEST_EXECUTABLE_STACK.md](LATEST_EXECUTABLE_STACK.md).
 
-**ES:** App de participante en **A-Frame** por HTTPS, puente **Python** (LSL → WebSocket) y monitor **Electron** para el investigador.
+**ES:** App de participante en **A-Frame** por HTTPS (lista para LAN sin internet, A-Frame local), puente **Python** (LSL → WebSocket) y monitor **Electron** con modos Operador + Exhibición.
+
+## What's new in this version / Novedades de esta versión
+
+- **No consent gate on default entry:** `app/index.html` goes directly to `experiment-wait-config.html`.
+- **Offline/LAN support:** A-Frame is loaded from `app/js/aframe.min.js` (no CDN dependency).
+- **Quest/LAN reliability:** participant page uses robust `runtime-state.json` polling fallback even when WSS is unstable.
+- **Exhibition Mode timing model:** configurable **total exhibition time** split across **5 playlist videos + winner replay**.
+- **Winner replay is timed:** no infinite winner loop; winner uses the same per-segment duration.
 
 ## Quick start
 
@@ -48,7 +56,7 @@ npm run demo
    npm run experiment
    ```
 
-   - **Participant (Quest / browser):** `https://<this-host>:8443/` → `experiment-wait-config.html` (immersive HUD, **sin** `embedded`).
+   - **Participant (Quest / browser):** `https://<this-host>:8443/` (direct entry to `experiment-wait-config.html`, immersive HUD, **sin** `embedded`).
    - **Monitor (Electron):** panel de control (estilo laboratorio) + **iframe** de la misma página HTTPS con `?embedded=1` (vista previa silenciada). **Start** envía `controller_start` al recorder y arranca los vídeos en **todos** los clientes WebSocket (Quest + iframe).
    - Recorder: `wss://<host>:8765`.
 
@@ -73,6 +81,22 @@ Edit **[app/data/content.json](app/data/content.json)** — exactly **five** `vi
 
 - **`controller_start`** fields: `experiment_id`, `video_index`, `durations_seconds` (length 5), `baseline_calibration_seconds`, `session_type`: `relaxation_playlist`.
 - Browser playlist advances clips locally; server tracks **`relaxation_index`** and per-video means.
+
+## Exhibition mode timing / Temporización en modo exhibición
+
+**EN**
+
+- In Exhibition mode, configure a **total duration** (seconds) from the top bar.
+- The app computes: `segment_seconds = max(5, floor(total_seconds / 6))`.
+- `controller_start` is sent with `durations_seconds = [segment_seconds x 5]`.
+- Winner replay also uses `segment_seconds`, so full exhibition = 5 clips + winner.
+
+**ES**
+
+- En modo Exhibición configuras un **tiempo total** (segundos) en la barra superior.
+- La app calcula: `segment_seconds = max(5, floor(total_seconds / 6))`.
+- `controller_start` se envía con `durations_seconds = [segment_seconds x 5]`.
+- La repetición del ganador usa el mismo `segment_seconds`, así la experiencia completa = 5 clips + ganador.
 
 ## ui-ux-pro-max (optional)
 

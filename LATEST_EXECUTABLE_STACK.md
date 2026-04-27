@@ -31,7 +31,7 @@ npm run experiment
 
 ### Participant (browser / VR)
 
-- **A-Frame 1.7** (CDN: `aframe.min.js`).
+- **A-Frame 1.7** (local bundle: `app/js/aframe.min.js`, no CDN required).
 - Static **HTML / CSS / JS** under `app/`.
 - **360° video:** hidden `<video>` + **VideoTexture** on **`<a-videosphere>`** (custom A-Frame components manage texture lifecycle to avoid flicker).
 - **`app/js/app-base.js`:** `window.assetUrl()` and `APP_BASE_URL` for correct asset URLs on different hosts (e.g. Quest on LAN).
@@ -57,11 +57,11 @@ npm run experiment
 
 ### Default lab path (EEG)
 
-1. **`app/index.html`** → redirect to **`disclaimer-v2.html`**.
-2. **`disclaimer-v2.html`:** 2D disclosure overlay + embedded **`<a-scene>`** (VR consent buttons). On **Accept**, the default behavior is **full navigation** to **`experiment-wait-config.html`** (adds **`?vr=1`** if VR mode was active). The in-page “choice” / embedded EEG menus are **not** used on this default path.
-3. **`experiment-wait-config.html`:**  
-   - **Waiting state:** “Waiting for configuration” (2D card + simple VR text).  
-   - **Experiment state:** after WebSocket **`start_experiment`** — bottom **HUD** (level, phobia label, time, fear index, **EMERGENCY EXIT**), **`a-videosphere`** world visible, video playback driven by level and `content.json`.
+1. **`app/index.html`** → redirect directly to **`experiment-wait-config.html`**.
+2. **`experiment-wait-config.html`:**
+   - **Waiting state:** “Waiting for researcher / 研究者を待機中” (2D + VR panel fallback).
+   - **Experiment state:** after `start_experiment` — bottom HUD (RI, clip, time), `a-videosphere` visible, playlist playback driven by `content.json` + `durations_seconds`.
+   - **Summary state:** receives `experiment_summary`, shows winner countdown, then winner replay for a finite timer.
 
 ### Classic / demo (not started by `npm run experiment`)
 
@@ -72,20 +72,19 @@ npm run experiment
 
 ## 4. Transitions / Transiciones
 
-- **Between pages:** hard navigation (`location.href`) disclaimer → wait-config.
+- **Between pages:** default path is direct `index.html` → `experiment-wait-config.html`.
 - **Inside `experiment-wait-config.html`:** no SPA router; **DOM state** toggles:
-  - Waiting: show `#waiting-screen`, VR `#waiting-vr`, hide video world / HUD.
-  - Running: hide waiting, show **`#video-hud`**, show **`#video-world`** + videosphere, load video URL for current level.
-- **Level changes:** same `<video>` element, new `src` from `content.json`; texture refresh flags (`_playerForceReapply` / similar); HUD badge updates.
-- **Session types:** `hybrid` (adaptive + manual) vs **`auto_sequence`** (timed ramp baseline **0** → **1…5** per `duration_seconds` split).
-- **VR:** optional auto `enterVR()` when URL has **`?vr=1`**; `vr-world-offset` adjusts world position in VR.
-- **Web VR implementation detail** (hand layers, pinch, pseudocode): **§8.11–8.15**.
+  - Waiting: show waiting overlay(s), hide video world / HUD.
+  - Running: hide waiting, show **`#video-hud`**, show **`#video-world`**, load current clip URL.
+  - Winner: show summary/countdown overlay, then timed winner replay.
+- **Playlist progression:** clip timer is authoritative from `durations_seconds`; progression continues even when metadata is delayed.
+- **VR:** optional auto `enterVR()` when URL has **`?vr=1`**.
 
 ---
 
 ## 5. WebSocket protocol (port 8765) / Protocolo WebSocket
 
-Browser connects to **`wss://<hostname>:8765`** when the page is HTTPS (same host as the app).
+Browser attempts **`wss://<hostname>:8765`** and also polls **`app/data/runtime-state.json`** as fallback (LAN/Quest reliability).
 
 ### Client → `aura_recorder` (examples)
 
@@ -93,9 +92,8 @@ Browser connects to **`wss://<hostname>:8765`** when the page is HTTPS (same hos
 |----------------|---------|
 | `controller_start` | Start recording + broadcast **`start_experiment`** to all browser clients (phobia, level 0–5, `experiment_id`, `duration_seconds`, `session_type`, `baseline_calibration_seconds`, etc.). |
 | `start` | Start recording from a browser (no broadcast of `start_experiment` in the same way as controller — see `aura_recorder.py`). |
-| `level_change` | Sync level on recorder after client-side adaptive step. |
-| `manual_level` | Set level 0–5; server broadcasts **`force_level`** to all clients. |
-| `set_auto_adaptation` | Toggle; broadcast **`auto_adaptation_toggle`**. |
+| `video_advance` | Notify recorder that local playlist moved to next clip index. |
+| `set_video` / `manual_level` / `level_change` | Force current clip index manually (compat aliases supported). |
 | `stop` | Save CSV, stop recording, broadcast **`stop_video`** / stopped status. |
 | `stop_video` | Broadcast stop video UI only (without full stop semantics — see script). |
 
@@ -105,9 +103,9 @@ Browser connects to **`wss://<hostname>:8765`** when the page is HTTPS (same hos
 |---------|---------|
 | `start_experiment` | Participant UI starts experiment (from `controller_start` path). |
 | `adaptive_state` | `fear_index`, metrics (`theta_fz`, `beta_alpha_fz_cz`, …), `level_suggestion`, calibration fields, etc. |
-| `force_level` | Immediate level sync (e.g. manual from monitor). |
-| `auto_adaptation_toggle` | Client enables/disables applying adaptive suggestions. |
+| `force_video` | Immediate clip index sync across clients. |
 | `stop_video` | Return participant to waiting / stop playback. |
+| `experiment_summary` | Per-video mean RI + winner id; triggers winner announcement/replay flow. |
 | `status: stopped` (and related) | Acknowledgments / end of run. |
 
 Full logic: **`scripts/aura_recorder.py`** (`handle_websocket`, `adaptive_broadcast_loop`).
@@ -117,9 +115,11 @@ Full logic: **`scripts/aura_recorder.py`** (`handle_websocket`, `adaptive_broadc
 ## 6. Researcher interface (Electron) / Interfaz del investigador
 
 - **Path:** `monitor-electron/`.
-- **Tabs:** **Metrics** (fear/engagement, mood, θ Fz, β/α, posterior α, FAA) and **Session** (phobia from `content.json`, start level 0–5, experiment ID, duration, baseline calibration seconds, `hybrid` vs `auto_sequence`, **Start** / **Stop**, **adaptive toggle**, **manual levels** 0–5).
-- **Start experiment** sends **`controller_start`** with the selected fields (see `monitor-electron/src/renderer/src/App.tsx`).
-- WebSocket connection: main process **`RecorderWsClient`**, renderer receives `ws:message` / `ws:status` via preload API.
+- **Modes:** **Operator** and **Exhibition**.
+- **Operator mode:** control + preview + EEG signals; start/stop sends `controller_start` / `stop`.
+- **Exhibition mode:** public-facing display with start/demo/restart controls.
+- **Exhibition timing:** configurable **total duration** split across **5 clips + winner replay** (`segment = floor(total/6)` with safety minimums).
+- WebSocket connection: Electron main process bridges to recorder; renderer receives `ws:message` / `ws:status` via preload API.
 
 ---
 
@@ -127,7 +127,7 @@ Full logic: **`scripts/aura_recorder.py`** (`handle_websocket`, `adaptive_broadc
 
 | Area | Files |
 |------|--------|
-| Entry & wait | `app/index.html`, `app/disclaimer-v2.html`, `app/experiment-wait-config.html` |
+| Entry & wait | `app/index.html`, `app/experiment-wait-config.html` (`app/disclaimer-v2.html` now redirects immediately) |
 | Assets helper | `app/js/app-base.js` |
 | Content | `app/data/content.json` |
 | Recorder | `scripts/aura_recorder.py`, `scripts/eeg_adaptive.py`, `scripts/config_eeg.py` |
