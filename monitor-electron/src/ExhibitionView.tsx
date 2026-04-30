@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import miraiLogo from "./assets/mirai-logo.png";
 
 type BandSample = {
   t: number;
@@ -18,6 +19,7 @@ type VideoItem = {
 
 interface ExhibitionViewProps {
   wsState: string;
+  httpsReachable: boolean | null;
   experimentId: string;
   currentIndex: number | null;
   videos: VideoItem[];
@@ -28,6 +30,12 @@ interface ExhibitionViewProps {
   durationPerVideo: number;
   exhibitionTotalDuration: number;
   onExhibitionTotalDurationChange: (value: number) => void;
+  auraMode: "aura" | "mock" | "unknown";
+  auraConnected: boolean;
+  auraChannels: number;
+  auraMessage: string;
+  onConnectAura: () => void;
+  onDisconnectAura: () => void;
   onStart: () => void;
   onStartSimulation: () => void;
   onStop: () => void;
@@ -67,6 +75,7 @@ const BAND_DISPLAY: Array<{
 export function ExhibitionView(props: ExhibitionViewProps) {
   const {
     wsState,
+    httpsReachable,
     experimentId,
     currentIndex,
     videos,
@@ -77,6 +86,12 @@ export function ExhibitionView(props: ExhibitionViewProps) {
     durationPerVideo,
     exhibitionTotalDuration,
     onExhibitionTotalDurationChange,
+    auraMode,
+    auraConnected,
+    auraChannels,
+    auraMessage,
+    onConnectAura,
+    onDisconnectAura,
     onStart,
     onStartSimulation,
     onStop,
@@ -232,7 +247,14 @@ export function ExhibitionView(props: ExhibitionViewProps) {
     <div className="exhibition-root">
       {/* ===== Top bar ===== */}
       <div className="ex-topbar">
-        <div className="ex-topbar-left">
+        <div className="ex-topbar-left" style={{ display: "flex", alignItems: "center", gap: "0.85rem" }}>
+          <img
+            src={miraiLogo}
+            alt="Mirai Innovation"
+            height={36}
+            width={120}
+            style={{ height: 36, width: "auto", maxWidth: 140, objectFit: "contain", display: "block", flexShrink: 0 }}
+          />
           <span className="ex-brand">
             Relaxation <span className="ex-brand-accent">×</span> VR
           </span>
@@ -267,6 +289,25 @@ export function ExhibitionView(props: ExhibitionViewProps) {
                 title="Total exhibition duration distributed across 5 videos + winner"
               />
             </label>
+          )}
+          <span className="ex-aura-pill">
+            {auraMode === "aura"
+              ? auraConnected
+                ? `AURA ${auraChannels}ch`
+                : "AURA not connected"
+              : auraMode === "mock"
+              ? "Mock mode"
+              : "AURA unknown"}
+          </span>
+          {phase !== "running" && (
+            <button type="button" className="ex-btn-aura" onClick={onConnectAura}>
+              Connect AURA
+            </button>
+          )}
+          {phase !== "running" && (
+            <button type="button" className="ex-btn-aura ex-btn-aura-off" onClick={onDisconnectAura}>
+              Mock
+            </button>
           )}
           {phase === "running" && (
             <button type="button" className="ex-btn-stop" onClick={onStop}>
@@ -327,7 +368,6 @@ export function ExhibitionView(props: ExhibitionViewProps) {
                   type="button"
                   className="ex-btn-start"
                   onClick={onStart}
-                  disabled={wsState !== "open"}
                 >
                   ▶ Start Experience
                 </button>
@@ -339,9 +379,11 @@ export function ExhibitionView(props: ExhibitionViewProps) {
                   ◇ Start Demo
                 </button>
                 <div className="ex-idle-meta">
-                  {wsState === "open"
-                    ? "準備完了 · AURA未接続なら Demo を使用"
-                    : "AURA未接続でも Demo で開始できます"}
+                  {wsState !== "open"
+                    ? "Recorder offline: start ./scripts/run-aura.sh --wss"
+                    : httpsReachable === false
+                    ? "HTTPS offline: run npm run serve:https"
+                    : "準備完了 · AURA未接続なら Demo を使用"}
                 </div>
               </div>
             </div>
@@ -699,6 +741,12 @@ export function ExhibitionView(props: ExhibitionViewProps) {
           <span>5G Lab TEQS ATC · Osaka</span>
           <span className="ex-footer-sep" />
           <span>リラクゼーション × VR 体験</span>
+          {auraMessage ? (
+            <>
+              <span className="ex-footer-sep" />
+              <span>{auraMessage}</span>
+            </>
+          ) : null}
         </div>
         <div className="ex-footer-right">
           <span>Session #{sessionsToday} today</span>
@@ -707,6 +755,27 @@ export function ExhibitionView(props: ExhibitionViewProps) {
           <div className="ex-qr" />
         </div>
       </div>
+
+      <img
+        src={miraiLogo}
+        alt=""
+        aria-hidden
+        height={92}
+        width={200}
+        style={{
+          position: "fixed",
+          bottom: 18,
+          left: 22,
+          height: 92,
+          width: "auto",
+          maxWidth: 220,
+          objectFit: "contain",
+          opacity: 0.75,
+          pointerEvents: "none",
+          filter: "drop-shadow(0 4px 12px rgba(0,0,0,0.55))",
+          zIndex: 5,
+        }}
+      />
     </div>
   );
 }

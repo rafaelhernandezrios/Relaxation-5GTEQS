@@ -65,6 +65,23 @@
       background: rgba(15, 23, 42, 0.75);
       color: #cbd5e1;
     }
+    #brand-mark {
+      position: fixed;
+      top: 14px;
+      right: 16px;
+      z-index: 25;
+      width: auto;
+      max-height: 52px;
+      max-width: min(42vw, 180px);
+      height: auto;
+      opacity: 0.85;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+      filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
+    }
+    /* Hide the mark while a clip is playing so it doesn't sit over the
+       videosphere; it reappears on the waiting / announce screens. */
+    body.clip-playing #brand-mark { opacity: 0; }
     #embedded-banner {
       display: none;
       position: fixed;
@@ -175,6 +192,8 @@
     Researcher preview (muted) / 研究者プレビュー（ミュート）
   </div>
   <div id="ws-status">WS: …</div>
+  <img id="brand-mark" src="assets/mirai-logo.png" alt="Mirai Innovation" />
+
   <div id="play-gate" aria-live="polite">
     <div>
       <div>To continue, tap to enable video playback.</div>
@@ -727,6 +746,7 @@
         // with an idle "waiting" message during the gap before the
         // recorder ships the experiment_summary.
         setWaitingMode(awaitingWinnerSummary ? "calculating" : "idle");
+        document.body.classList.remove("clip-playing");
         syncVrPanels();
       }
 
@@ -734,6 +754,7 @@
         waitingEl.style.display = "none";
         hudEl.classList.add("visible");
         videoWorld.setAttribute("visible", true);
+        document.body.classList.add("clip-playing");
         syncVrPanels();
       }
 

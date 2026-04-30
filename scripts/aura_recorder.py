@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import concurrent.futures
 import csv
 import json
 import math
@@ -35,10 +36,11 @@ except ImportError:
     raise SystemExit("pip install websockets")
 
 try:
-    from pylsl import StreamInlet, resolve_byprop
+    from pylsl import StreamInlet, resolve_byprop, resolve_streams
 except ImportError:
     StreamInlet = None  # type: ignore
     resolve_byprop = None  # type: ignore
+    resolve_streams = None  # type: ignore
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -82,6 +84,120 @@ def load_content() -> List[Dict[str, Any]]:
     return list(data.get("videos", []))
 
 
+def _list_visible_streams() -> List[Tuple[str, str]]:
+    """Return [(name, type), ...] for every LSL stream visible right now."""
+    if resolve_streams is None:
+        return []
+    try:
+        streams = resolve_streams(wait_time=2.0)
+    except Exception:
+        return []
+    out: List[Tuple[str, str]] = []
+    for s in streams or []:
+        try:
+            out.append((str(s.name() or ""), str(s.type() or "")))
+        except Exception:
+            continue
+    return out
+
+
+def _discover_aura_stream() -> Optional[Any]:
+    """Find an AURA-compatible LSL outlet.
+
+    Tries the strict exact-name match first (fast path), then falls back to
+    enumerating all streams and matching case-insensitively on name OR type
+    containing 'aura'. Many AURA outlets advertise themselves as 'Aura' or
+    'AURA-Raw' rather than the literal 'AURA' the original code required.
+    """
+    if resolve_byprop is None:
+        return None
+
+    # Fast path: exact match. 2.5 s gives pylsl room to enumerate
+    # interfaces on the very first call without freezing the UI.
+    try:
+        strict = resolve_byprop("name", "AURA", minimum=1, timeout=2.5)
+    except Exception:
+        strict = []
+    if strict:
+        print("[recorder] LSL discovery: strict name='AURA' matched", flush=True)
+        return strict[0]
+
+    # Fallback: enumerate all and accept anything aura-ish.
+    if resolve_streams is None:
+        return None
+    try:
+        all_streams = resolve_streams(wait_time=2.5)
+    except Exception:
+        all_streams = []
+    print(
+        f"[recorder] LSL discovery: strict miss, scanning {len(all_streams)} stream(s)",
+        flush=True,
+    )
+    for s in all_streams or []:
+        try:
+            name = (s.name() or "").lower()
+            stype = (s.type() or "").lower()
+        except Exception:
+            continue
+        if "aura" in name or "aura" in stype:
+            print(
+                f"[recorder] LSL discovery: fuzzy match name='{s.name()}' type='{s.type()}'",
+                flush=True,
+            )
+            return s
+    return None
+
+
+def _read_lsl_channel_labels(info: Any, n_ch: int) -> List[str]:
+    """Return the channel labels declared by the LSL stream (e.g. F1, FZ, FP1).
+
+    Falls back to ch1..chN when the XML is missing/incomplete so the recorder
+    keeps working with non-conformant streams.
+    """
+    labels: List[str] = []
+    try:
+        ch = info.desc().child("channels").child("channel")
+        while not ch.empty():
+            label = ch.child_value("label") or ch.child_value("name") or ""
+            labels.append(label.strip())
+            ch = ch.next_sibling()
+    except Exception:
+        labels = []
+    if len(labels) != n_ch or not all(labels):
+        return [f"ch{i+1}" for i in range(n_ch)]
+    return labels
+
+
+def _open_inlet_with_timeout(stream_info: Any, timeout_s: float = 8.0) -> Any:
+    """Create StreamInlet with a hard timeout."""
+    if StreamInlet is None:
+        raise RuntimeError("pylsl not available")
+
+    def _build() -> Any:
+        inlet = StreamInlet(stream_info)
+        return inlet
+
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    fut = ex.submit(_build)
+    try:
+        return fut.result(timeout=max(0.1, float(timeout_s)))
+    except concurrent.futures.TimeoutError as e:
+        # Do not block waiting for the worker to finish; if pylsl gets stuck
+        # internally, we still need to return control to the websocket loop.
+        fut.cancel()
+        ex.shutdown(wait=False, cancel_futures=True)
+        raise RuntimeError(
+            f"AURA stream found, but inlet opening timed out after {timeout_s:.1f}s. "
+            f"This usually means the outlet advertised an interface this Mac "
+            f"can't reach. Try restarting the recorder with "
+            f"LSL_LIST_INTERFACES=en0 (or your active interface name)."
+        ) from e
+    finally:
+        # Normal path: shut down cleanly.
+        if fut.done():
+            ex.shutdown(wait=True, cancel_futures=False)
+
+
 def _json_safe(obj: Any) -> Any:
     if isinstance(obj, dict):
         return {k: _json_safe(v) for k, v in obj.items()}
@@ -108,16 +224,55 @@ class EEGRecorder:
     def connect(self) -> None:
         if self.mock:
             self.channel_names = [f"ch{i+1}" for i in range(5)]
+            print("[recorder] EEG mode: MOCK (5 simulated channels)", flush=True)
             return
         if resolve_byprop is None:
             raise RuntimeError("pylsl not available")
-        streams = resolve_byprop("name", "AURA", minimum=1, timeout=5.0)
-        if not streams:
-            raise RuntimeError('No LSL stream named "AURA"')
-        self.inlet = StreamInlet(streams[0])
-        info = self.inlet.info()
-        n_ch = info.channel_count()
+
+        chosen = _discover_aura_stream()
+        if chosen is None:
+            # Build a helpful error with whatever streams ARE visible so the
+            # operator can spot the actual outlet name (e.g. "Aura", "EEG",
+            # "AURA-Raw") and we don't just say "not found".
+            visible = _list_visible_streams()
+            if visible:
+                hint = "; visible streams: " + ", ".join(
+                    f"name='{n}' type='{t}'" for n, t in visible
+                )
+            else:
+                hint = "; no LSL streams visible from this host"
+            raise RuntimeError("No AURA-like LSL stream found" + hint)
+
+        self.inlet = _open_inlet_with_timeout(chosen, timeout_s=8.0)
+        try:
+            n_ch = int(chosen.channel_count())
+        except Exception:
+            n_ch = 5
+        if n_ch <= 0:
+            n_ch = 5
         self.channel_names = [f"ch{i+1}" for i in range(n_ch)]
+        # Best effort metadata read; do not block the connect path on this.
+        stream_name = "AURA"
+        stream_type = "EEG"
+        stream_srate: Any = SAMPLE_RATE_HZ
+        try:
+            stream_name = str(chosen.name() or stream_name)
+        except Exception:
+            pass
+        try:
+            stream_type = str(chosen.type() or stream_type)
+        except Exception:
+            pass
+        try:
+            stream_srate = chosen.nominal_srate()
+        except Exception:
+            pass
+        print(
+            f"[recorder] AURA connected: name='{stream_name}' "
+            f"type='{stream_type}' channels={n_ch} "
+            f"labels={self.channel_names} srate={stream_srate}",
+            flush=True,
+        )
 
     def start_thread(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -148,9 +303,17 @@ class EEGRecorder:
 
         assert self.inlet is not None
         while not self._stop.is_set():
-            s, ts = self.inlet.pull_sample(timeout=0.1)
-            if s is not None:
-                self._push(ts, list(s))
+            # Chunked pulls are far cheaper at 250 Hz than per-sample polls
+            # and keep the websocket loop responsive between drains.
+            try:
+                samples, timestamps = self.inlet.pull_chunk(
+                    timeout=0.1, max_samples=64
+                )
+            except Exception:
+                samples, timestamps = [], []
+            if samples and timestamps:
+                for ts, s in zip(timestamps, samples):
+                    self._push(ts, list(s))
 
     def _push(self, ts: float, sample: List[float]) -> None:
         label = getattr(self, "_current_label", "idle")
@@ -391,8 +554,18 @@ class SessionState:
             self.eeg.connect()
         self.eeg.start_thread()
 
+    def aura_status_message(self) -> Dict[str, Any]:
+        is_aura = not self.eeg.mock
+        return {
+            "type": "aura_status",
+            "mode": "aura" if is_aura else "mock",
+            "connected": bool(is_aura and self.eeg.channel_names),
+            "channels": len(self.eeg.channel_names),
+        }
+
     async def register(self, ws: Any) -> None:
         self.clients.add(ws)
+        await ws.send(json.dumps(_json_safe(self.aura_status_message())))
         # Late-joining participant clients must receive the current running state,
         # otherwise they miss the initial start trigger broadcast.
         if self.rec.recording:
@@ -522,147 +695,251 @@ def _remaining_playlist_seconds(state: SessionState) -> float:
 async def handle_client(ws: Any, state: SessionState) -> None:
     await state.register(ws)
     try:
-        async for message in ws:
-            try:
-                data = json.loads(message)
-            except json.JSONDecodeError:
-                continue
-            mtype = data.get("type")
-            if mtype == "controller_start":
-                videos = load_content()
-                if len(videos) != 5:
-                    await ws.send(
-                        json.dumps(
-                            {"status": "error", "message": "content.json must list exactly 5 videos"}
-                        )
-                    )
-                    continue
-                exp_id = data.get("experiment_id", "exp")
-                vidx = int(data.get("video_index", 0))
-                durs = merge_durations(videos, data.get("durations_seconds"))
-                base_cal = float(data.get("baseline_calibration_seconds", 0) or 0)
-                use_mock = parse_bool(data.get("simulate_eeg"), state.default_mock)
+        try:
+            async for message in ws:
                 try:
-                    state.ensure_eeg_running(use_mock=use_mock)
-                except RuntimeError as e:
-                    await ws.send(
-                        json.dumps(
-                            {
-                                "status": "error",
-                                "message": f"{e}. Enable simulation mode to run without AURA hardware.",
-                            }
+                    data = json.loads(message)
+                except json.JSONDecodeError:
+                    continue
+                mtype = data.get("type")
+                if mtype == "aura_status_request":
+                    await ws.send(json.dumps(_json_safe(state.aura_status_message())))
+
+                elif mtype == "aura_connect":
+                    if state.rec.recording:
+                        await ws.send(
+                            json.dumps(
+                                {
+                                    "status": "error",
+                                    "message": "Stop the current session before changing AURA connection mode.",
+                                }
+                            )
                         )
-                    )
-                    continue
-                with state.buffer_lock:
-                    state.full_buffer.clear()
-                state.rec.start(exp_id, vidx, videos, durs, base_cal)
-                state.runtime_seq += 1
-                write_runtime_state(
-                    {
-                        "seq": state.runtime_seq,
-                        "active": True,
-                        "experiment_id": exp_id,
-                        "video_index": state.rec.video_index,
-                        "videos": videos,
-                        "durations_seconds": durs,
-                        "updated_at": int(time.time() * 1000),
-                    }
-                )
-                _schedule_auto_stop(state, _remaining_playlist_seconds(state))
-
-                await state.broadcast(
-                    {
-                        "type": "start_experiment",
-                        "session_type": "relaxation_playlist",
-                        "experiment_id": exp_id,
-                        "video_index": state.rec.video_index,
-                        "durations_seconds": durs,
-                        "videos": videos,
-                        "baseline_calibration_seconds": base_cal,
-                        "simulate_eeg": use_mock,
-                    }
-                )
-                await ws.send(json.dumps({"status": "started"}))
-
-            elif mtype == "start":
-                videos = load_content()
-                if len(videos) != 5:
-                    await ws.send(json.dumps({"status": "error", "message": "need 5 videos in content.json"}))
-                    continue
-                exp_id = data.get("experiment_id", "exp")
-                durs = merge_durations(videos, data.get("durations_seconds"))
-                use_mock = parse_bool(data.get("simulate_eeg"), state.default_mock)
-                try:
-                    state.ensure_eeg_running(use_mock=use_mock)
-                except RuntimeError as e:
-                    await ws.send(
-                        json.dumps(
-                            {
-                                "status": "error",
-                                "message": f"{e}. Enable simulation mode to run without AURA hardware.",
-                            }
+                        continue
+                    print("[recorder] aura_connect requested", flush=True)
+                    last_error: Optional[Exception] = None
+                    for attempt in range(1, 4):
+                        try:
+                            print(f"[recorder] aura_connect attempt {attempt}/3", flush=True)
+                            await asyncio.to_thread(state.ensure_eeg_running, False)
+                            state.default_mock = False
+                            last_error = None
+                            break
+                        except RuntimeError as e:
+                            last_error = e
+                            print(f"[recorder] aura_connect attempt {attempt} failed: {e}", flush=True)
+                            if attempt < 3:
+                                await asyncio.sleep(0.35)
+                    if last_error is not None:
+                        print(f"[recorder] aura_connect failed: {last_error}", flush=True)
+                        await ws.send(
+                            json.dumps(
+                                {
+                                    "status": "error",
+                                    "message": str(last_error),
+                                }
+                            )
                         )
+                        continue
+                    status_msg = state.aura_status_message()
+                    print(f"[recorder] aura_connect ok: {status_msg}", flush=True)
+                    await ws.send(json.dumps({"status": "aura_connected"}))
+                    await state.broadcast(status_msg)
+
+                elif mtype == "aura_disconnect":
+                    if state.rec.recording:
+                        await ws.send(
+                            json.dumps(
+                                {
+                                    "status": "error",
+                                    "message": "Stop the current session before changing AURA connection mode.",
+                                }
+                            )
+                        )
+                        continue
+                    print("[recorder] aura_disconnect requested -> switching to MOCK", flush=True)
+                    state.default_mock = True
+                    await asyncio.to_thread(state.ensure_eeg_running, True)
+                    status_msg = state.aura_status_message()
+                    print(f"[recorder] aura_disconnect ok: {status_msg}", flush=True)
+                    await ws.send(json.dumps({"status": "aura_disconnected"}))
+                    await state.broadcast(status_msg)
+
+                elif mtype == "controller_start":
+                    videos = load_content()
+                    if len(videos) != 5:
+                        await ws.send(
+                            json.dumps(
+                                {"status": "error", "message": "content.json must list exactly 5 videos"}
+                            )
+                        )
+                        continue
+                    exp_id = data.get("experiment_id", "exp")
+                    vidx = int(data.get("video_index", 0))
+                    durs = merge_durations(videos, data.get("durations_seconds"))
+                    base_cal = float(data.get("baseline_calibration_seconds", 0) or 0)
+                    raw_sim = data.get("simulate_eeg")
+                    requested_mock = parse_bool(raw_sim, state.default_mock)
+                    # If AURA is connected, default to AURA for normal starts,
+                    # but still allow explicit demo starts (simulate_eeg=true).
+                    aura_live = (not state.eeg.mock) and bool(state.eeg.channel_names)
+                    explicit_demo = (raw_sim is not None) and requested_mock
+                    use_mock = requested_mock
+                    if aura_live and not explicit_demo:
+                        use_mock = False
+                    print(
+                        f"[recorder] controller_start exp={exp_id} vidx={vidx} "
+                        f"requested_mock={requested_mock} aura_live={aura_live} "
+                        f"-> use_mock={use_mock}",
+                        flush=True,
                     )
-                    continue
-                with state.buffer_lock:
-                    state.full_buffer.clear()
-                state.rec.start(
-                    exp_id,
-                    int(data.get("video_index", 0)),
-                    videos,
-                    durs,
-                    float(data.get("baseline_calibration_seconds", 0) or 0),
-                )
-                _schedule_auto_stop(state, _remaining_playlist_seconds(state))
-                await ws.send(json.dumps({"status": "started"}))
-
-            elif mtype in ("set_video", "manual_level", "level_change"):
-                idx = int(data.get("video_index", data.get("level", 0)))
-                state.rec.set_video_index(idx)
-                state.runtime_seq += 1
-                write_runtime_state(
-                    {
-                        "seq": state.runtime_seq,
-                        "active": state.rec.recording,
-                        "experiment_id": state.rec.experiment_id,
-                        "video_index": state.rec.video_index,
-                        "videos": state.rec.videos,
-                        "durations_seconds": state.rec.durations_seconds,
-                        "updated_at": int(time.time() * 1000),
-                    }
-                )
-                if state.rec.recording:
+                    try:
+                        await asyncio.to_thread(state.ensure_eeg_running, use_mock)
+                    except RuntimeError as e:
+                        print(f"[recorder] controller_start aborted: {e}", flush=True)
+                        await ws.send(
+                            json.dumps(
+                                {
+                                    "status": "error",
+                                    "message": f"{e}. Enable simulation mode to run without AURA hardware.",
+                                }
+                            )
+                        )
+                        continue
+                    await state.broadcast(state.aura_status_message())
+                    with state.buffer_lock:
+                        state.full_buffer.clear()
+                    state.rec.start(exp_id, vidx, videos, durs, base_cal)
+                    state.runtime_seq += 1
+                    write_runtime_state(
+                        {
+                            "seq": state.runtime_seq,
+                            "active": True,
+                            "experiment_id": exp_id,
+                            "video_index": state.rec.video_index,
+                            "videos": videos,
+                            "durations_seconds": durs,
+                            "simulate_eeg": use_mock,
+                            "updated_at": int(time.time() * 1000),
+                        }
+                    )
                     _schedule_auto_stop(state, _remaining_playlist_seconds(state))
-                await state.broadcast({"type": "force_video", "video_index": idx})
 
-            elif mtype == "video_advance":
-                nxt = int(data.get("video_index", state.rec.video_index))
-                state.rec.set_video_index(nxt)
-                state.runtime_seq += 1
-                write_runtime_state(
-                    {
-                        "seq": state.runtime_seq,
-                        "active": state.rec.recording,
-                        "experiment_id": state.rec.experiment_id,
-                        "video_index": state.rec.video_index,
-                        "videos": state.rec.videos,
-                        "durations_seconds": state.rec.durations_seconds,
-                        "updated_at": int(time.time() * 1000),
-                    }
-                )
-                if state.rec.recording:
+                    print(
+                        f"[recorder] experiment running mode={'mock' if use_mock else 'aura'} "
+                        f"channels={len(state.eeg.channel_names)} "
+                        f"durations={durs}",
+                        flush=True,
+                    )
+                    await state.broadcast(
+                        {
+                            "type": "start_experiment",
+                            "session_type": "relaxation_playlist",
+                            "experiment_id": exp_id,
+                            "video_index": state.rec.video_index,
+                            "durations_seconds": durs,
+                            "videos": videos,
+                            "baseline_calibration_seconds": base_cal,
+                            "simulate_eeg": use_mock,
+                        }
+                    )
+                    await ws.send(json.dumps({"status": "started"}))
+
+                elif mtype == "start":
+                    videos = load_content()
+                    if len(videos) != 5:
+                        await ws.send(json.dumps({"status": "error", "message": "need 5 videos in content.json"}))
+                        continue
+                    exp_id = data.get("experiment_id", "exp")
+                    durs = merge_durations(videos, data.get("durations_seconds"))
+                    raw_sim = data.get("simulate_eeg")
+                    requested_mock = parse_bool(raw_sim, state.default_mock)
+                    aura_live = (not state.eeg.mock) and bool(state.eeg.channel_names)
+                    explicit_demo = (raw_sim is not None) and requested_mock
+                    use_mock = requested_mock
+                    if aura_live and not explicit_demo:
+                        use_mock = False
+                    try:
+                        await asyncio.to_thread(state.ensure_eeg_running, use_mock)
+                    except RuntimeError as e:
+                        await ws.send(
+                            json.dumps(
+                                {
+                                    "status": "error",
+                                    "message": f"{e}. Enable simulation mode to run without AURA hardware.",
+                                }
+                            )
+                        )
+                        continue
+                    await state.broadcast(state.aura_status_message())
+                    with state.buffer_lock:
+                        state.full_buffer.clear()
+                    state.rec.start(
+                        exp_id,
+                        int(data.get("video_index", 0)),
+                        videos,
+                        durs,
+                        float(data.get("baseline_calibration_seconds", 0) or 0),
+                    )
                     _schedule_auto_stop(state, _remaining_playlist_seconds(state))
-                await state.broadcast({"type": "force_video", "video_index": nxt})
+                    await ws.send(json.dumps({"status": "started"}))
 
-            elif mtype == "stop":
-                _cancel_auto_stop(state)
-                summary, path = await _perform_stop(state)
-                _ = summary  # broadcast inside helper; unused locally
-                await ws.send(json.dumps({"status": "stopped", "file": path}))
+                elif mtype in ("set_video", "manual_level", "level_change"):
+                    idx = int(data.get("video_index", data.get("level", 0)))
+                    state.rec.set_video_index(idx)
+                    state.runtime_seq += 1
+                    write_runtime_state(
+                        {
+                            "seq": state.runtime_seq,
+                            "active": state.rec.recording,
+                            "experiment_id": state.rec.experiment_id,
+                            "video_index": state.rec.video_index,
+                            "videos": state.rec.videos,
+                            "durations_seconds": state.rec.durations_seconds,
+                            "updated_at": int(time.time() * 1000),
+                        }
+                    )
+                    if state.rec.recording:
+                        _schedule_auto_stop(state, _remaining_playlist_seconds(state))
+                    await state.broadcast({"type": "force_video", "video_index": idx})
 
-            elif mtype == "stop_video":
-                await state.broadcast({"type": "stop_video"})
+                elif mtype == "video_advance":
+                    nxt = int(data.get("video_index", state.rec.video_index))
+                    state.rec.set_video_index(nxt)
+                    state.runtime_seq += 1
+                    write_runtime_state(
+                        {
+                            "seq": state.runtime_seq,
+                            "active": state.rec.recording,
+                            "experiment_id": state.rec.experiment_id,
+                            "video_index": state.rec.video_index,
+                            "videos": state.rec.videos,
+                            "durations_seconds": state.rec.durations_seconds,
+                            "updated_at": int(time.time() * 1000),
+                        }
+                    )
+                    if state.rec.recording:
+                        _schedule_auto_stop(state, _remaining_playlist_seconds(state))
+                    await state.broadcast({"type": "force_video", "video_index": nxt})
+
+                elif mtype == "stop":
+                    print("[recorder] stop requested", flush=True)
+                    _cancel_auto_stop(state)
+                    await ws.send(json.dumps({"status": "stopping"}))
+                    summary, path = await _perform_stop(state)
+                    print(
+                        f"[recorder] experiment stopped winner={summary.get('winner_video_id')!r} "
+                        f"csv={path or '(none)'}",
+                        flush=True,
+                    )
+                    await ws.send(json.dumps({"status": "stopped", "file": path}))
+
+                elif mtype == "stop_video":
+                    await state.broadcast({"type": "stop_video"})
+        except websockets.exceptions.ConnectionClosed:
+            # Electron can terminate without a graceful websocket close frame.
+            # Treat this as a normal disconnect, not a server error.
+            pass
 
     finally:
         await state.unregister(ws)

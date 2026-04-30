@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExhibitionView } from "./ExhibitionView";
+import miraiLogo from "./assets/mirai-logo.png";
 
 type VideoItem = {
   id: string;
@@ -101,6 +102,12 @@ export function App() {
   const [tab, setTab] = useState<"control" | "signals">("control");
   const [mode, setMode] = useState<"operator" | "exhibition">("operator");
   const [wsState, setWsState] = useState<string>("…");
+  const [auraMode, setAuraMode] = useState<"aura" | "mock" | "unknown">("unknown");
+  const [auraConnected, setAuraConnected] = useState(false);
+  const [auraChannels, setAuraChannels] = useState(0);
+  const [auraMessage, setAuraMessage] = useState<string>("");
+  const [httpsReachable, setHttpsReachable] = useState<boolean | null>(null);
+  const [httpsMessage, setHttpsMessage] = useState<string>("");
   const [participantUrlInput, setParticipantUrlInput] = useState(
     "https://127.0.0.1:8443/experiment-wait-config.html"
   );
@@ -126,18 +133,33 @@ export function App() {
   const playlistRef = useRef<VideoItem[]>([]);
 
   useEffect(() => {
-    fetch("https://127.0.0.1:8443/data/content.json")
-      .then((r) => r.json())
-      .then((data: { videos?: VideoItem[] }) => {
+    let canceled = false;
+    const probeHttps = async () => {
+      try {
+        const r = await fetch("https://127.0.0.1:8443/data/content.json", { cache: "no-store" });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = (await r.json()) as { videos?: VideoItem[] };
+        if (canceled) return;
+        setHttpsReachable(true);
+        setHttpsMessage("");
         const v = data.videos || [];
         setVideos(v);
         if (v.length === 5) {
           setGlobalDuration(Number(v[0]?.duration_seconds) || DEFAULT_GLOBAL_DURATION);
         }
-      })
-      .catch(() => {
+      } catch {
+        if (canceled) return;
+        setHttpsReachable(false);
+        setHttpsMessage("HTTPS server unreachable on https://127.0.0.1:8443");
         setVideos([]);
-      });
+      }
+    };
+    probeHttps();
+    const timer = window.setInterval(probeHttps, 5000);
+    return () => {
+      canceled = true;
+      window.clearInterval(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -145,6 +167,12 @@ export function App() {
     const offStatus = bridge.onStatus((s) => setWsState(s.state || "…"));
     const offMsg = bridge.onMessage((msg) => {
       if (!msg) return;
+      if (msg.type === "aura_status") {
+        const mode = msg.mode === "aura" ? "aura" : msg.mode === "mock" ? "mock" : "unknown";
+        setAuraMode(mode);
+        setAuraConnected(Boolean(msg.connected));
+        setAuraChannels(typeof msg.channels === "number" ? msg.channels : 0);
+      }
       if (msg.type === "adaptive_state") {
         const riNum = toNum(msg.relaxation_index);
         if (riNum != null) {
@@ -192,12 +220,48 @@ export function App() {
       if (msg.status === "stopped" && typeof (msg as { file?: string }).file === "string") {
         setLastFile((msg as { file: string }).file);
       }
+      if (msg.status === "aura_connected") {
+        setAuraMessage("AURA connected");
+      } else if (msg.status === "aura_disconnected") {
+        setAuraMessage("AURA disconnected (mock mode)");
+      } else if (msg.status === "stopping") {
+        setAuraMessage("Stopping session...");
+      } else if (msg.status === "error" && typeof msg.message === "string") {
+        setAuraMessage(msg.message);
+      }
     });
     return () => {
       offStatus();
       offMsg();
     };
   }, [bridge]);
+
+  useEffect(() => {
+    if (!bridge) return;
+    if (wsState !== "open") return;
+    bridge.send({ type: "aura_status_request" });
+    const timer = window.setInterval(() => {
+      bridge.send({ type: "aura_status_request" });
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [bridge, wsState]);
+
+  // Option A: keep the simulation checkbox in sync with the backend's
+  // resolved EEG mode. The single source of truth for the simulate_eeg
+  // flag sent on Start is whatever the backend currently has wired up:
+  //   - aura + connected   -> simulation OFF (use real EEG)
+  //   - mock                -> simulation ON
+  //   - aura + NOT connected (e.g. recorder launched without --mock-eeg
+  //     but AURA never bound) -> simulation ON, so Start doesn't try to
+  //     open the inlet in the hot path and freeze the UI. The user has
+  //     to explicitly press "Connect AURA" to flip it.
+  useEffect(() => {
+    if (auraMode === "aura" && auraConnected) {
+      setSimulationMode(false);
+    } else {
+      setSimulationMode(true);
+    }
+  }, [auraMode, auraConnected]);
 
   const send = useCallback(
     (obj: Record<string, unknown>) => {
@@ -212,6 +276,9 @@ export function App() {
 
   const sendStart = useCallback(
     (durationPerVideo: number, forceSimulation?: boolean) => {
+      if (httpsReachable === false) {
+        setAuraMessage("HTTPS appears offline; attempting start anyway.");
+      }
       setSummary(null);
       setRiHistory([]);
       setBandsHistory([]);
@@ -225,7 +292,7 @@ export function App() {
         simulate_eeg: forceSimulation ?? simulationMode,
       });
     },
-    [send, experimentId, baselineCal, simulationMode]
+    [send, experimentId, baselineCal, simulationMode, httpsReachable]
   );
 
   const onStart = () =>
@@ -241,13 +308,39 @@ export function App() {
     [sendStart, exhibitionSegmentDuration]
   );
   const onStartExhibitionSimulation = useCallback(
-    () => sendStart(exhibitionSegmentDuration, true),
-    [sendStart, exhibitionSegmentDuration]
+    () => {
+      // "Start Demo" used to always force simulate_eeg=true, which on the
+      // backend tears down a live AURA inlet via switch_eeg_mode(True). In
+      // exhibition mode that's almost never desired: if AURA is already
+      // connected the operator wants the demo run to keep using AURA. We
+      // only force mock when AURA isn't actually live, preserving the
+      // original "demo without hardware" workflow.
+      const auraIsLive = auraMode === "aura" && auraConnected;
+      sendStart(exhibitionSegmentDuration, auraIsLive ? undefined : true);
+    },
+    [sendStart, exhibitionSegmentDuration, auraMode, auraConnected]
   );
 
   const onStop = () => {
     send({ type: "stop" });
   };
+
+  const onConnectAura = useCallback(() => {
+    if (wsState !== "open") {
+      setAuraMessage("Recorder WS not open yet; sending connect request anyway...");
+    } else {
+      setAuraMessage("Trying AURA connection...");
+    }
+    // Optimistic sync: avoid sending stale simulate_eeg=true if user
+    // presses Start right after Connect AURA.
+    setSimulationMode(false);
+    send({ type: "aura_connect" });
+  }, [send, wsState]);
+
+  const onDisconnectAura = useCallback(() => {
+    setAuraMessage(wsState === "open" ? "Switching to mock mode..." : "Recorder WS not open yet.");
+    send({ type: "aura_disconnect" });
+  }, [send, wsState]);
 
   // Cmd/Ctrl+Shift+E toggles Exhibition Mode (works from either mode).
   useEffect(() => {
@@ -289,6 +382,7 @@ export function App() {
     return (
       <ExhibitionView
         wsState={wsState}
+        httpsReachable={httpsReachable}
         experimentId={experimentId}
         currentIndex={currentIndex}
         videos={videos}
@@ -299,6 +393,12 @@ export function App() {
         durationPerVideo={exhibitionSegmentDuration}
         exhibitionTotalDuration={exhibitionTotalDuration}
         onExhibitionTotalDurationChange={setExhibitionTotalDuration}
+        auraMode={auraMode}
+        auraConnected={auraConnected}
+        auraChannels={auraChannels}
+        auraMessage={auraMessage}
+        onConnectAura={onConnectAura}
+        onDisconnectAura={onDisconnectAura}
         onStart={onStartExhibition}
         onStartSimulation={onStartExhibitionSimulation}
         onStop={onStop}
@@ -310,17 +410,29 @@ export function App() {
   return (
     <div className="monitor-root">
       <header className="app-header">
-        <div className="titles">
-          <h1>Researcher Panel · Lab Control / 研究者パネル</h1>
-          <p className="sub">
-            <strong>EN:</strong> This is not the immersive participant view. Configure here and press{" "}
-            <strong>Start</strong> to launch the session in the recorder; videos play on the HTTPS web page
-            (iframe) and on Quest. <strong>JA:</strong> これは参加者向けの没入ビューではありません。ここで設定し、
-            <strong>Start</strong> を押すと、レコーダーのセッションが開始されます。
-          </p>
+        <div className="titles" style={{ display: "flex", alignItems: "center", gap: "0.85rem" }}>
+          <img
+            src={miraiLogo}
+            alt="Mirai Innovation"
+            height={42}
+            width={140}
+            style={{ height: 42, width: "auto", maxWidth: 160, objectFit: "contain", display: "block", flexShrink: 0 }}
+          />
+          <div>
+            <h1 style={{ margin: 0 }}>Researcher Panel · Lab Control / 研究者パネル</h1>
+            <p className="sub">
+              <strong>EN:</strong> This is not the immersive participant view. Configure here and press{" "}
+              <strong>Start</strong> to launch the session in the recorder; videos play on the HTTPS web page
+              (iframe) and on Quest. <strong>JA:</strong> これは参加者向けの没入ビューではありません。ここで設定し、
+              <strong>Start</strong> を押すと、レコーダーのセッションが開始されます。
+            </p>
+          </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <span className={"ws-pill " + (wsState === "open" ? "open" : "")}>Recorder WS: {wsState}</span>
+          <span className={"ws-pill " + (httpsReachable ? "open" : "")}>
+            HTTPS: {httpsReachable == null ? "…" : httpsReachable ? "open" : "offline"}
+          </span>
           <button
             type="button"
             className="toggle-exhibition-btn"
@@ -377,16 +489,54 @@ export function App() {
                   />
                 </label>
               </div>
-              <label className="field" style={{ marginTop: "0.65rem", display: "flex", gap: "0.6rem", alignItems: "center" }}>
+              <label
+                className="field"
+                style={{
+                  marginTop: "0.65rem",
+                  display: "flex",
+                  gap: "0.6rem",
+                  alignItems: "center",
+                  opacity: auraMode === "aura" && auraConnected ? 0.6 : 1,
+                }}
+              >
                 <input
                   type="checkbox"
                   checked={simulationMode}
+                  disabled={auraMode === "aura" && auraConnected}
                   onChange={(e) => setSimulationMode(e.target.checked)}
                 />
                 <span>
                   Simulation mode (without AURA) / シミュレーションモード（AURAなし）
+                  {auraMode === "aura" && auraConnected ? (
+                    <span style={{ display: "block", fontSize: "0.72rem", color: "#94a3b8" }}>
+                      Locked: AURA is connected. Use “Disconnect (Mock)” to switch.
+                    </span>
+                  ) : null}
                 </span>
               </label>
+              <div className="summary-block" style={{ marginTop: "0.65rem" }}>
+                <strong>AURA Connection:</strong>{" "}
+                {auraMode === "aura"
+                  ? auraConnected
+                    ? `Connected (${auraChannels} ch)`
+                    : "AURA mode, not connected"
+                  : auraMode === "mock"
+                  ? "Mock mode (AURA disconnected)"
+                  : "Unknown"}
+                <div className="actions" style={{ marginTop: "0.55rem" }}>
+                  <button type="button" className="btn-primary" onClick={onConnectAura}>
+                    Connect AURA
+                  </button>
+                  <button type="button" className="btn-danger" onClick={onDisconnectAura}>
+                    Disconnect (Mock)
+                  </button>
+                </div>
+                {auraMessage ? (
+                  <p className="compact-hint" style={{ marginTop: "0.5rem" }}>
+                    {auraMessage}
+                  </p>
+                ) : null}
+              </div>
 
               <p className="compact-hint" style={{ marginTop: "0.65rem" }}>
                 Global duration per clip (s) - applied equally to all 5 videos
@@ -402,7 +552,11 @@ export function App() {
               </label>
 
               <div className="actions">
-                <button type="button" className="btn-primary" onClick={onStart}>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={onStart}
+                >
                   Start / 開始
                 </button>
                 <button type="button" className="btn-danger" onClick={onStop}>
@@ -433,6 +587,14 @@ export function App() {
               <strong>Preview - same page as Quest (HTTPS server) / プレビュー</strong>
               <span className="hint">embedded=1</span>
             </div>
+            {httpsReachable === false ? (
+              <div className="summary-block" style={{ margin: "0.7rem 0", borderColor: "#7f1d1d" }}>
+                <strong>Pipeline issue:</strong> {httpsMessage || "HTTPS server offline"}
+                <p className="compact-hint" style={{ marginTop: "0.4rem" }}>
+                  Run <code>npm run serve:https</code> or <code>npm run experiment</code>.
+                </p>
+              </div>
+            ) : null}
             <iframe className="participant-iframe" title="Participant session" src={iframeSrc} />
           </section>
         </div>
