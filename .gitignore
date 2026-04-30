@@ -11,3 +11,6 @@ venv/
 dist/
 monitor-electron/dist/
 app/videos/
+
+# Cursor debug session logs (do not commit)
+.cursor/debug*.log

@@ -100,8 +100,10 @@ Edit **[app/data/content.json](app/data/content.json)** — exactly **five** `vi
 
 ## ui-ux-pro-max (optional)
 
+The repo keeps a **single** copy of this design skill under **`.claude/skills/ui-ux-pro-max/`** (duplicated IDE sync trees were removed to reduce size).
+
 For extra UI guidance, run (from repo root):
 
 ```bash
-python3 .codex/skills/ui-ux-pro-max/scripts/search.py "wellness biometrics research dashboard calm" --design-system -p "Relaxation Lab"
+python3 .claude/skills/ui-ux-pro-max/scripts/search.py "wellness biometrics research dashboard calm" --design-system -p "Relaxation Lab"
 ```
